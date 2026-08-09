@@ -1,9 +1,19 @@
 [project]
-name = "antnest-master"
+name = "antnest"
 version = "0.1.0"
-description = "Add your description here"
+description = "AntNest - an AI coding agent with a queen/worker (ant) architecture and a desktop UI"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pywebview>=6.0",
 ]
+
+[project.scripts]
+antnest = "antnest_launcher:run"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["prototype_antnest", "phtmlwin", "antnest_bridge", "AntNest", "antnest_launcher"]

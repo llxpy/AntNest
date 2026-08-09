@@ -149,9 +149,42 @@ cp config.example.json config.json
 - **桌面界面**：`uv run python prototype_antnest.py`
 - **命令行核心**（原 AntNest 用法）：`uv run python AntNest.py -u "你的任务"`
 
-## 四、Windows 安装包
+## 四、分发方式（给最终用户）
 
-源码自带 Inno Setup 安装脚本（`installer/AntNest.iss`）。打包策略是**小包 + uv 前置**：不把 Python 运行时打进去，安装时自动装 uv 和 WebView2，首次启动 `uv run` 建环境并装 pywebview。单用户安装到 `%LOCALAPPDATA%\AntNest`，无需管理员权限。
+本项目给最终用户三种安装方式。v1 主推 **B / C**（面向已装 uv 的开发者，零摩擦）；**A（Inno 安装包）** 作为 GitHub Release 的附加产物，给没有 uv 的普通用户。
+
+### 4.1 方式 B：下载 Release zip，双击 launch.bat（推荐给大多数用户）
+
+从 GitHub Release 下载源码 zip，解压后双击根目录的 `launch.bat`：
+
+- 首次运行自动安装 [uv](https://docs.astral.sh/uv/)（若未装）；
+- 自动用 uv 建隔离环境并装 pywebview（**需联网一次**）；
+- 之后离线也能开；
+- 运行时数据落到可写位置 `%LOCALAPPDATA%\AntNest`，不污染解压目录。
+
+```bat
+launch.bat
+```
+
+### 4.2 方式 C：uvx 一行命令（面向已装 uv 的开发者）
+
+若你已装 uv，无需下载/解压，直接一行拉起（首次会从本仓库构建并缓存）：
+
+```bat
+uvx --from git+https://github.com/llxpy/AntNest antnest
+```
+
+若已 clone 本仓库，也可在仓库内：
+
+```bat
+uv run --project . antnest
+```
+
+> `antnest` 是 `pyproject.toml` 里定义的命令入口（`antnest_launcher:run`），等价于 `uv run python prototype_antnest.py` 且自动把状态写到 `%LOCALAPPDATA%\AntNest`。
+
+### 4.3 方式 A：Windows 安装包（Inno Setup，给没有 uv 的普通用户）
+
+源码自带 Inno Setup 安装脚本（`installer/AntNest.iss`）。打包策略是**小包 + uv 前置**：不把 Python 运行时打进去，安装时自动装 uv 和 WebView2，首次启动 `uv run` 建环境并装 pywebview。单用户安装到 `%LOCALAPPDATA%\AntNest`，无需管理员权限。该产物作为 GitHub Release 的附加下载（`AntNest-Setup.exe`），不在主推之列。
 
 构建（需在本机装 [Inno Setup 6](https://jrsoftware.org/isdl.php)）：
 
@@ -219,8 +252,10 @@ AntNest/
 ├── antnest_bridge.py     # UI 与核心的零侵入桥接层
 ├── phtmlwin.py           # 桌面 UI 框架（pywebview 封装）
 ├── prototype_antnest.py  # 桌面 UI 入口（聊天 + 监控 + 设置）
+├── antnest_launcher.py   # 方式 C 命令入口（antnest = antnest_launcher:run）
+├── launch.bat            # 方式 B 启动器（自动装 uv + 跑 UI）
 ├── config.json           # 你的配置（由 config.example.json 复制，不入库）
-├── pyproject.toml        # uv 依赖（pywebview）
+├── pyproject.toml        # uv 依赖 + 命令入口定义
 ├── uv.lock
 ├── antnest.ico
 ├── installer/            # Windows 安装包（Inno Setup）
