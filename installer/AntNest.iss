@@ -49,18 +49,19 @@ Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignorevers
 ; ---- installer helper scripts ----
 Source: ".\launch.ps1";          DestDir: "{app}"; Flags: ignoreversion
 Source: ".\ensure_prereqs.ps1";  DestDir: "{app}"; Flags: ignoreversion
+Source: ".\launcher.ps1";        DestDir: "{app}"; Flags: ignoreversion
+; ---- compiled launcher (built by installer\build_launcher.ps1 before ISCC) ----
+Source: "{#SourceDir}\AntNest.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; ---- user data (clean TEMPLATES, no secrets; write only on first install; upgrades keep user's edited config) ----
 ; NOTE: ship templates, NOT the dev config.json (which holds the real API key). Templates have empty api_key.
 Source: ".\config.template.json";   DestDir: "{app}"; DestName: "config.json";   Flags: ignoreversion onlyifdoesntexist
 Source: ".\ui_config.template.json"; DestDir: "{app}"; DestName: "ui_config.json"; Flags: ignoreversion onlyifdoesntexist
 
 [Icons]
-; Start Menu + Desktop shortcuts: launch.ps1 hidden
-Name: "{group}\{#MyAppName}"; Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launch.ps1"""; \
+; Start Menu + Desktop shortcuts: double-click AntNest.exe (native launcher, no console)
+Name: "{group}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
   WorkingDir: "{app}"; IconFilename: "{app}\antnest.ico"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launch.ps1"""; \
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
   WorkingDir: "{app}"; IconFilename: "{app}\antnest.ico"
 
 [Run]

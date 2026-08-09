@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Compiled launcher (built by installer\build_launcher.ps1, not committed)
+AntNest.exe
+
 # AntNest 运行时（记忆 / session / 工蚁隔离目录 / UI trace）
 .antnest/
 

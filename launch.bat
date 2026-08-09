@@ -12,6 +12,12 @@ setlocal
 set "ANT_INSTALLED=1"
 set "SCRIPT_DIR=%~dp0"
 
+REM 0) If a compiled AntNest.exe sits next to this bat, just run it (no console)
+if exist "%~dp0AntNest.exe" (
+    start "" "%~dp0AntNest.exe"
+    goto :eof
+)
+
 REM 1) Make sure uv exists
 where uv >nul 2>nul
 if errorlevel 1 (
