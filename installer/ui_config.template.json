@@ -1,0 +1,9 @@
+{
+  "theme": "dark",
+  "bg_image": "",
+  "custom_agent": "",
+  "mcp_enabled": "false",
+  "mcp_config": "mcp.json",
+  "skills_enabled": "false",
+  "skills_dir": ""
+}

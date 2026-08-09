@@ -1,0 +1,17 @@
+{
+  "api": {
+    "base_url": "https://api.deepseek.com/v1",
+    "model_name": "deepseek-chat",
+    "api_key": ""
+  },
+  "agent": {
+    "max_depth": 2,
+    "max_clones": {
+      "0": 10,
+      "1": 5,
+      "2": 3
+    },
+    "compact_threshold": 0.85,
+    "tool_result_max_len": 8000
+  }
+}
