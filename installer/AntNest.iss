@@ -10,7 +10,7 @@
 #define MyAppName "AntNest"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "AntNest"
-#define MyAppURL "https://github.com/your-org/antnest"
+#define MyAppURL "https://github.com/llxpy/AntNest"
 ; repo root (relative to this .iss, which lives in installer/)
 #define SourceDir ".."
 
@@ -42,6 +42,7 @@ Source: "{#SourceDir}\AntNest.py";          DestDir: "{app}"; Flags: ignoreversi
 Source: "{#SourceDir}\phtmlwin.py";          DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_bridge.py";    DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\prototype_antnest.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_launcher.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\pyproject.toml";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\uv.lock";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignoreversion
