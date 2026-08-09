@@ -34,7 +34,7 @@ SetupIconFile={#SourceDir}\antnest.ico
 UninstallDisplayIcon={#SourceDir}\antnest.ico
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:ChineseSimplified.isl"
 
 [Files]
 ; ---- app source ----
