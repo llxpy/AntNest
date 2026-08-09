@@ -12,6 +12,9 @@ wheels/
 # Compiled launcher (built by installer\build_launcher.ps1, not committed)
 AntNest.exe
 
+# Inno Setup build output (release asset, publish via GitHub Release, never commit)
+installer/out/
+
 # AntNest 运行时（记忆 / session / 工蚁隔离目录 / UI trace）
 .antnest/
 
