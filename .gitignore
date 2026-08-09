@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# AntNest 运行时（记忆 / session / 工蚁隔离目录 / UI trace）
+.antnest/
+
+# 本机 UI 偏好（主题、背景图、自定义 Agent），由 antnest_bridge 自动生成
+ui_config.json
+# 含 API key 的运行时配置，绝不能入库（安装包改用 installer/config.template.json 的空模板）
+config.json
