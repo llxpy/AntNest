@@ -50,6 +50,7 @@ Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignorevers
 Source: ".\launch.ps1";          DestDir: "{app}"; Flags: ignoreversion
 Source: ".\ensure_prereqs.ps1";  DestDir: "{app}"; Flags: ignoreversion
 Source: ".\launcher.ps1";        DestDir: "{app}"; Flags: ignoreversion
+Source: ".\install_deps.ps1";    DestDir: "{app}"; Flags: ignoreversion
 ; ---- compiled launcher (built by installer\build_launcher.ps1 before ISCC) ----
 Source: "{#SourceDir}\AntNest.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; ---- user data (clean TEMPLATES, no secrets; write only on first install; upgrades keep user's edited config) ----
@@ -64,8 +65,12 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
   WorkingDir: "{app}"; IconFilename: "{app}\antnest.ico"
 
-; Note: do NOT run ensure_prereqs.ps1 during setup. AntNest.exe calls it on first
-; launch, so running it here would block the installer while downloading uv/WebView2.
+; Install-time dependency setup: install uv, ensure WebView2, pre-install pywebview
+; via uv. Runs VISIBLE (no runhidden) so the user sees progress instead of a
+; "frozen" Finishing screen. Keep synchronous (no nowait) so deps are ready when done.
+[Run]
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_deps.ps1"""; \
+  Description: "正在安装 AntNest 依赖（uv + pywebview）"; Flags:
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.venv"
