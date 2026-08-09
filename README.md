@@ -274,22 +274,7 @@ cd /path/to/project
 uv run python /path/to/AntNest/AntNest.py -asu "运行所有测试，汇总失败用例，写入 test-report.md" --until "DONE"
 ```
 
-## 七、与 EVA 的关系
-
-AntNest 基于开源项目 [EVA](https://github.com/usepr/eva) 的架构思路重构。核心差异：
-
-| 维度 | EVA | AntNest |
-| --- | --- | --- |
-| 架构 | 单体 Agent | 蚁后 / 工蚁 |
-| 执行方式 | LLM 直接调用 Shell | 蚁后 spawn 工蚁，工蚁调用 Shell |
-| 安全模型 | LLM 审查 + 人工确认 | 进程级隔离 + 危险命令过滤 + 执行即销毁 |
-| 配置方式 | 仅环境变量 | `config.json` + 环境变量 |
-| 界面 | 命令行 | 命令行 + 桌面图形界面（pywebview） |
-| 分发 | 源码 | 源码 + Windows 安装包 |
-
-AntNest 保留了 EVA 的优点（单文件核心、流式推理、Think 重复检测、Token 预算管理、Session 持久化、环境探针），并用蚁后 / 工蚁架构替代了直接 Shell 调用的模式，在此之上加了桌面 UI 与安装包。
-
-## 八、常见问题
+## 七、常见问题
 
 **Q: 工蚁会不会泄露敏感信息？**
 工蚁创建时只复制 `AntNest.py`，不继承蚁后的内存状态和对话历史。工蚁通过环境变量或临时文件接收命令，执行结果写入本地 JSON 文件，蚁后读取后立即删除工蚁目录。但需注意：这是进程级隔离，不是安全沙箱——若 LLM 被诱导生成读取敏感文件的命令（如 `type C:\Users\xxx\.ssh\id_rsa`），工蚁照样会执行。代码有危险命令正则过滤作为兜底，但不覆盖所有场景。
@@ -309,6 +294,6 @@ thinking 模型（如 `deepseek-reasoner`、带思考链的模型）在流式输
 **Q: NEST.md 什么时候更新？**
 token 用量达到上限的 85% 时触发记忆压缩，LLM 自主整理技能知识写入 `NEST.md`。也可手动编辑 `NEST.md` 教蚁后新技能，重启后生效。
 
-## 九、许可证
+## 八、许可证
 
-本项目基于 EVA 的思路重构，具体许可证见仓库 LICENSE 文件（如有）。
+本项目使用 MIT 许可证，详见仓库 LICENSE 文件。
