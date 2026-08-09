@@ -1,6 +1,6 @@
 ; AntNest installer script (Inno Setup 6+)
 ; Build: install Inno Setup, right-click this file -> Compile, or from ISCC:
-;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" AntNest.iss
+;   "D:\Software\Inno Setup 6\ISCC.exe" AntNest.iss
 ; Output: installer\out\AntNest-Setup.exe (unsigned; users see a SmartScreen warning on first run)
 ;
 ; Design: single-user install to %LOCALAPPDATA%\AntNest, no admin rights.
@@ -28,7 +28,7 @@ Compression=lzma2
 SolidCompression=yes
 ; single-user, no admin. Installs to LOCALAPPDATA, does not touch Program Files.
 PrivilegesRequired=lowest
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64os
 WizardStyle=modern
 SetupIconFile={#SourceDir}\antnest.ico
 UninstallDisplayIcon={#SourceDir}\antnest.ico
