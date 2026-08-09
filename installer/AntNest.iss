@@ -64,9 +64,8 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\AntNest.exe"; \
   WorkingDir: "{app}"; IconFilename: "{app}\antnest.ico"
 
-[Run]
-; run prereq check (uv + WebView2) at install time; failure does not block install, launch.ps1 retries
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\ensure_prereqs.ps1"""; Flags: runhidden
+; Note: do NOT run ensure_prereqs.ps1 during setup. AntNest.exe calls it on first
+; launch, so running it here would block the installer while downloading uv/WebView2.
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.venv"
