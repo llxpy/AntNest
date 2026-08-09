@@ -157,8 +157,8 @@ cp config.example.json config.json
 
 从 GitHub Release 下载源码 zip，解压后**双击根目录的 `AntNest.exe`** 即可（原生启动器，无控制台窗口）：
 
-- 首次运行自动安装 [uv](https://docs.astral.sh/uv/) + WebView2 运行时（若未装）；
-- 自动用 uv 建隔离环境并装 pywebview（**需联网一次**）；
+- 首次运行会自动装 [uv](https://docs.astral.sh/uv/) + WebView2 运行时并预装 pywebview（**仅需联网一次**）；
+- 安装包（方式 A）这一步在安装时就已经做完，首次启动秒开；方式 B 在首次双击 `AntNest.exe` 时完成；
 - 之后离线也能开；
 - 运行时数据落到可写位置 `%LOCALAPPDATA%\AntNest`，不污染解压目录。
 
