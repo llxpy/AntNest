@@ -1,6 +1,6 @@
 [project]
 name = "antnest"
-version = "0.1.0"
+version = "1.1.0"
 description = "AntNest - an AI coding agent with a queen/worker (ant) architecture and a desktop UI"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -17,3 +17,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["prototype_antnest", "phtmlwin", "antnest_bridge", "AntNest", "antnest_launcher"]
+# 把项目内 Page/ 作为数据文件打包，uvx/whl 安装后仍在 site-packages/Page
+[tool.setuptools.data-files]
+Page = ["Page/*"]
