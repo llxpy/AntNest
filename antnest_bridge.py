@@ -48,6 +48,22 @@ UI_CFG = os.environ.get("ANT_UI_CONFIG_PATH") or os.path.join(THIS_DIR, "ui_conf
 TRACE_DIR = os.environ.get("ANT_TRACE_DIR") or os.path.join(THIS_DIR, ".antnest")
 TRACE_LOG = os.path.join(TRACE_DIR, "ui_trace.log")
 
+# 默认 Skills 目录：空值时解析为 app 同目录下的 Skills/（安装版随包），
+# 这样安装包只需要创建 {app}\Skills，ui_config.json 留空即可。
+_DEFAULT_SKILLS_DIR = os.path.join(THIS_DIR, "Skills")
+
+
+def _resolve_skills_dir(raw):
+    raw = (raw or "").strip()
+    return raw if raw else _DEFAULT_SKILLS_DIR
+
+
+def _is_default_skills_dir(path):
+    try:
+        return os.path.normcase(os.path.normpath(path or "")) == os.path.normcase(os.path.normpath(_DEFAULT_SKILLS_DIR))
+    except Exception:
+        return False
+
 
 # ==================================================================== Trace
 class _Trace:
@@ -101,11 +117,19 @@ UI_DEFAULTS = {
     "mcp_enabled": "true",
     "mcp_config": "mcp.json",
     "skills_enabled": "true",
-    "skills_dir": "~/.workbuddy/skills",
+    "skills_dir": "",
 }
 
 _APPEARANCE_KEYS = ("theme", "bg_image", "custom_agent")
 _UI_ONLY_SETTING_KEYS = ("mcp_enabled", "mcp_config", "skills_enabled", "skills_dir")
+
+# 模型名 vision 能力启发式判断（OpenAI /models 接口通常不返回 capabilities，
+# 所以靠关键词兜底；若接口返回了 capabilities.vision 则优先信接口）。
+_VISION_KEYWORDS = (
+    "vision", "gpt-4o", "gpt-4-turbo", "gpt-4.5", "claude-3",
+    "qwen-vl", "gemini-pro-vision", "gemini-1.5", "gemini-2",
+    "llava", "internvl", "deepseek-vl", "glm-4v", "yi-vl",
+)
 
 
 def _read_json(path, default):
@@ -142,6 +166,64 @@ def fmt_max_clones(d):
     return "{" + ",".join(f"{k}:{v}" for k, v in items) + "}"
 
 
+def _expand_path(p):
+    return os.path.expandvars(os.path.expanduser(p or ""))
+
+
+def list_skills(skills_dir):
+    """扫描 skills 目录，返回可用 skill 列表（零侵入：不解析内容，只读头几行取描述）。
+    目录不存在时自动创建，避免安装包/用户忘记建文件夹导致空列表。"""
+    root = _expand_path(skills_dir)
+    if not root:
+        return []
+    if not os.path.isdir(root):
+        try:
+            os.makedirs(root, exist_ok=True)
+            trace("S0", "info", f"创建 skills 目录：{root}")
+        except Exception as e:
+            trace("S0", "warn", f"无法创建 skills 目录 {root}：{e}")
+            return []
+    out = []
+    try:
+        entries = sorted(os.listdir(root))
+    except Exception as e:
+        trace("S0", "warn", f"扫描 skills 目录失败：{e}")
+        return []
+    for name in entries:
+        if name.startswith("."):
+            continue
+        full = os.path.join(root, name)
+        skill = None
+        if os.path.isdir(full) and os.path.isfile(os.path.join(full, "SKILL.md")):
+            skill = {"name": name, "path": full, "type": "md", "source": os.path.join(full, "SKILL.md")}
+        elif os.path.isfile(full) and name.lower().endswith(".baim"):
+            skill = {"name": os.path.splitext(name)[0], "path": full, "type": "baim", "source": full}
+        if not skill:
+            continue
+        # 读前 20 行取描述
+        desc = ""
+        try:
+            with open(skill["source"], "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # 跳过纯注释/markdown 标题标记，取第一句实质内容
+                    if line.startswith("#") or line.startswith("//"):
+                        line = line.lstrip("#").lstrip("/").strip()
+                    if line:
+                        desc = line
+                        break
+                    if len(desc) > 200:
+                        break
+        except Exception:
+            pass
+        skill["description"] = desc or "（无描述）"
+        out.append(skill)
+    trace("S0", "info", f"扫描到 {len(out)} 个 skills")
+    return out
+
+
 def load_settings():
     """返回 (settings 扁平表单, appearance)。LLM/agent 来自 config.json，外观来自 ui_config.json。"""
     core = _read_json(CORE_CFG, {})
@@ -157,7 +239,10 @@ def load_settings():
         "max_clones": fmt_max_clones(agent.get("max_clones", {})),
     }
     for k in _UI_ONLY_SETTING_KEYS:
-        settings[k] = str(ui.get(k, UI_DEFAULTS[k]))
+        if k == "skills_dir":
+            settings[k] = _resolve_skills_dir(ui.get(k, UI_DEFAULTS[k]))
+        else:
+            settings[k] = str(ui.get(k, UI_DEFAULTS[k]))
 
     appearance = {k: ui.get(k, UI_DEFAULTS[k]) for k in _APPEARANCE_KEYS}
     trace("S0", "info", f"配置载入 model={settings['llm_model']} theme={appearance['theme']}")
@@ -198,7 +283,10 @@ def save_settings(settings, appearance):
                 ui[k] = appearance[k]
         for k in _UI_ONLY_SETTING_KEYS:
             if k in settings:
-                ui[k] = settings[k]
+                if k == "skills_dir" and _is_default_skills_dir(settings[k]):
+                    ui[k] = ""
+                else:
+                    ui[k] = settings[k]
         with open(UI_CFG, "w", encoding="utf-8") as f:
             json.dump(ui, f, ensure_ascii=False, indent=2)
 
@@ -214,7 +302,7 @@ def save_settings(settings, appearance):
 # 只用标准库，行为对齐 AntNest 第 113-150 行，但返回值而非退出。
 
 def verify_api(base_url, model, api_key, timeout=12):
-    """返回 (ok: bool, msg: str, models: list)。任何异常都不抛出。"""
+    """返回 (ok: bool, msg: str, models_data: list)。任何异常都不抛出。"""
     import urllib.request
     import urllib.error
 
@@ -252,12 +340,44 @@ def verify_api(base_url, model, api_key, timeout=12):
     except json.JSONDecodeError:
         return False, f"返回了非法 JSON：{body[:120]}", []
 
-    ids = [d.get("id", "") for d in out.get("data", []) if isinstance(d, dict)]
+    data = [d for d in out.get("data", []) if isinstance(d, dict)]
+    ids = [d.get("id", "") for d in data]
     if model and model not in ids:
         preview = ", ".join(ids[:8]) or "（空）"
-        return False, f"Key 有效，但未找到模型 '{model}'。可用：{preview}", ids
+        return False, f"Key 有效，但未找到模型 '{model}'。可用：{preview}", data
     trace("S0b", "info", f"校验通过 {model} @ {base}（{len(ids)} 个模型）")
-    return True, f"校验通过：{model} @ {base}", ids
+    return True, f"校验通过：{model} @ {base}", data
+
+
+def supports_vision(model_name, models_list=None):
+    """判断模型是否支持图片识别。models_list 是 /models 返回的 data 列表。"""
+    m = (model_name or "").lower()
+    if models_list:
+        for d in models_list:
+            if isinstance(d, dict) and d.get("id") == model_name:
+                caps = d.get("capabilities") or {}
+                if isinstance(caps, dict) and caps.get("vision"):
+                    return True
+                break
+    return any(k.lower() in m for k in _VISION_KEYWORDS)
+
+
+def browse_folder(initial_dir=""):
+    """弹出文件夹选择对话框；返回路径或空字符串。tkinter 延迟导入，缺失时优雅降级。"""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as e:
+        trace("S0", "warn", f"无法导入 tkinter，文件夹选择不可用：{e}")
+        return ""
+    init = _expand_path(initial_dir) if initial_dir else None
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        path = filedialog.askdirectory(initialdir=init) if init else filedialog.askdirectory()
+    finally:
+        root.destroy()
+    return path or ""
 
 
 def push_env(settings):
@@ -390,6 +510,8 @@ class AntNestCore:
         self._subs = []
         self._wid = 0
         self._base_system = ""
+        self._models_list = []   # /models 返回的模型 id 列表，用于精确判断 vision
+        self._vision_supported = None  # 该模型是否支持图片：None=未校验(仅关键词), True/False
         self._lock = threading.Lock()
 
     # ---------------- 事件
@@ -569,21 +691,24 @@ class AntNestCore:
         trace("S4", "info", "tool_executors.spawn_clone 已包装")
 
     # ---------------- S5 单轮执行
-    def send(self, text):
+    def send(self, text, image_b64=None, image_mime="image/png"):
         text = (text or "").strip()
-        if not text:
+        if not text and not image_b64:
             return False, "空消息"
         if self.busy:
             self.emit("status", state="busy", detail="蚁后正在思考，请稍候")
             return False, "busy"
-        threading.Thread(target=self._turn, args=(text,), daemon=True).start()
+        threading.Thread(target=self._turn, args=(text, image_b64, image_mime), daemon=True).start()
         return True, ""
 
-    def _turn(self, text):
+    def _turn(self, text, image_b64=None, image_mime="image/png"):
         self.busy = True
         self.emit("turn", state="start")
-        self.emit("chat", role="user", text=text)
-        trace("S5", "info", f"turn 开始：{text[:60]}")
+        display_text = text
+        if image_b64:
+            display_text += "\n[附带图片]"
+        self.emit("chat", role="user", text=display_text)
+        trace("S5", "info", f"turn 开始：{text[:60]} image={bool(image_b64)}")
         try:
             ok, err = self.ensure_loaded()
             if not ok:
@@ -594,7 +719,29 @@ class AntNestCore:
 
             m = self.mod
             start = len(m.messages)
-            m.messages.append({"role": "user", "content": m.clean_input(text)})
+
+            # 图片：先检测当前模型是否支持 vision
+            if image_b64:
+                model = getattr(m, "ANT_MODEL_NAME", "")
+                if not supports_vision(model, self._models_list):
+                    self.emit("chat", role="queen",
+                              text=f"当前模型 `{model}` 不支持图片识别，已忽略图片。"
+                                   f"请换用 vision 模型（如 gpt-4o、claude-3、qwen-vl 等）后再试。")
+                    self.log("warn", f"模型 {model} 不支持图片，图片已忽略")
+                    image_b64 = None
+
+            if image_b64:
+                # 使用 OpenAI vision 格式；核心只是原样序列化 messages，不会破坏数组 content
+                content = []
+                if text:
+                    content.append({"type": "text", "text": m.clean_input(text)})
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{image_mime};base64,{image_b64}"}
+                })
+                m.messages.append({"role": "user", "content": content})
+            else:
+                m.messages.append({"role": "user", "content": m.clean_input(text)})
             self.log("queen", f"收到任务：{text[:80]}")
 
             old_out = sys.stdout
@@ -634,11 +781,13 @@ class AntNestCore:
         """后台校验 API 配置，结果通过事件 + 回调返回。不阻塞 UI。"""
         def _run():
             self.emit("verify", state="start", detail="正在校验 API 配置…")
-            ok, msg, _ids = verify_api(
+            ok, msg, ids = verify_api(
                 settings.get("llm_base_url"),
                 settings.get("llm_model"),
                 settings.get("llm_api_key"),
             )
+            self._models_list = ids or []
+            self._vision_supported = supports_vision(settings.get("llm_model", ""), ids)
             self.emit("verify", state="ok" if ok else "fail", detail=msg)
             if on_done:
                 try:
