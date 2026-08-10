@@ -8,7 +8,7 @@
 ; uv builds a venv and installs pywebview on first run (requires internet).
 
 #define MyAppName "AntNest"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "AntNest"
 #define MyAppURL "https://github.com/llxpy/AntNest"
 ; repo root (relative to this .iss, which lives in installer/)
@@ -57,6 +57,12 @@ Source: "{#SourceDir}\AntNest.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: ship templates, NOT the dev config.json (which holds the real API key). Templates have empty api_key.
 Source: ".\config.template.json";   DestDir: "{app}"; DestName: "config.json";   Flags: ignoreversion onlyifdoesntexist
 Source: ".\ui_config.template.json"; DestDir: "{app}"; DestName: "ui_config.json"; Flags: ignoreversion onlyifdoesntexist
+; ---- 收款二维码（赞助作者弹窗用，项目内 Page/，随安装包分发）----
+Source: "{#SourceDir}\Page\*"; DestDir: "{app}\Page"; Flags: ignoreversion recursesubdirs
+
+[Dirs]
+; 安装时创建空的 Skills 文件夹，uninstall 时强制一起删掉（避免用户说「卸载不完全」）。
+Name: "{app}\Skills"; Flags: uninsalwaysuninstall
 
 [Icons]
 ; Start Menu + Desktop shortcuts: double-click AntNest.exe (native launcher, no console)
@@ -76,3 +82,7 @@ Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Fil
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\.antnest"
 Type: filesandordirs; Name: "{app}\trace"
+Type: filesandordirs; Name: "{app}\Skills"
+; 配置文件也显式清理，确保卸载后没有残留（单用户安装，配置存在安装目录里，这是预期行为）。
+Type: files; Name: "{app}\config.json"
+Type: files; Name: "{app}\ui_config.json"

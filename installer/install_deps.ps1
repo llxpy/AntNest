@@ -6,19 +6,46 @@ $ErrorActionPreference = "SilentlyContinue"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # 1. install uv (Astral) if missing
-$uv = "$env:LOCALAPPDATA\uv\uv.exe"
-if (-not (Test-Path $uv)) {
+function Find-Uv {
+    if (Get-Command uv -ErrorAction SilentlyContinue) { return (Get-Command uv).Source }
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA "uv\uv.exe"),
+        (Join-Path $env:USERPROFILE ".local\bin\uv.exe")
+    )
+    foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
+    return $null
+}
+$uv = Find-Uv
+if (-not $uv) {
     Write-Host "[AntNest] Installing uv ..."
     irm https://astral.sh/uv/install.ps1 | iex
+    $uv = Find-Uv
 }
-if (-not (Test-Path $uv)) {
+if (-not $uv) {
     Write-Warning "[AntNest] uv install failed. Install manually: https://docs.astral.sh/uv/"
     exit 1
 }
 
 # 2. ensure WebView2 runtime (best-effort, time-boxed to avoid hanging the installer)
-$reg = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A08C11}"
-if (-not (Test-Path $reg)) {
+function Test-WebView2Installed {
+    $roots = @()
+    if ($env:ProgramFiles)        { $roots += (Join-Path $env:ProgramFiles "Microsoft\EdgeWebView\Application") }
+    if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} "Microsoft\EdgeWebView\Application") }
+    foreach ($root in $roots) {
+        if (Test-Path $root) {
+            $bins = Get-ChildItem -Path $root -Recurse -Filter "msedgewebview2.exe" -ErrorAction SilentlyContinue
+            if ($bins.Count -gt 0) { return $true }
+        }
+    }
+    $regs = @(
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A08C11}",
+        "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A08C11}",
+        "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A08C11}"
+    )
+    foreach ($r in $regs) { if (Test-Path $r) { return $true } }
+    return $false
+}
+if (-not (Test-WebView2Installed)) {
     Write-Host "[AntNest] WebView2 runtime not found. Downloading (this can take a while) ..."
     $tmp = "$env:TEMP\wv2_setup.exe"
     try {
