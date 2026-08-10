@@ -25,5 +25,5 @@ $icon   = Join-Path $repo  "antnest.ico"
 Write-Host "[build_launcher] Compiling $input -> $output"
 # NOTE: Invoke-ps2exe has NO -windowStyle param. -noConsole makes it a Windows
 # app (no console window); that already covers the "no flash" goal.
-Invoke-ps2exe -inputFile $input -outputFile $output -noConsole -iconFile $icon -title "AntNest" -version "0.1.0"
+Invoke-ps2exe -inputFile $input -outputFile $output -noConsole -iconFile $icon -title "AntNest" -version "1.1.0"
 Write-Host "[build_launcher] Done: $output"
