@@ -43,9 +43,19 @@ Source: "{#SourceDir}\phtmlwin.py";          DestDir: "{app}"; Flags: ignorevers
 Source: "{#SourceDir}\antnest_bridge.py";    DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\prototype_antnest.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_launcher.py"; DestDir: "{app}"; Flags: ignoreversion
+; ---- v1.2.0 新增模块（工蚁文件操作 / Skills / MCP / 克隆 / 会话 / UI 渲染） ----
+Source: "{#SourceDir}\code_tools.py";           DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\skills_loader.py";        DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\mcp_client.py";           DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_clone_worker.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_session.py";      DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\ui_render.py";            DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\ui_assets_loader.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\pyproject.toml";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\uv.lock";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignoreversion
+; ---- UI 资源（被 ui_render / ui_assets_loader 运行时读取） ----
+Source: "{#SourceDir}\ui_assets\*"; DestDir: "{app}\ui_assets"; Flags: ignoreversion recursesubdirs
 ; ---- installer helper scripts ----
 Source: ".\launch.ps1";          DestDir: "{app}"; Flags: ignoreversion
 Source: ".\ensure_prereqs.ps1";  DestDir: "{app}"; Flags: ignoreversion
