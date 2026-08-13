@@ -24,7 +24,8 @@ antnest_bridge.py —— AntNest 核心 ↔ UI 适配层
 【事件协议】on_event(kind, payload)
   status   {state: loading|ready|error|busy, detail}
   turn     {state: start|end}
-  chat     {role: user|queen, text}
+  chat     {role: user|queen, text, reasoning?}
+  stream   {phase: start|reasoning_start|reasoning|reasoning_end|content|end, text?, reasoning?}
   log      {tag: queen|sys|worker|warn, text}
   worker   {id, name, status: run|ok|fail, task, note}
   subtask  {id, title, worker, status: run|ok|fail, msg}
@@ -171,8 +172,7 @@ def _expand_path(p):
 
 
 def list_skills(skills_dir):
-    """扫描 skills 目录，返回可用 skill 列表（零侵入：不解析内容，只读头几行取描述）。
-    目录不存在时自动创建，避免安装包/用户忘记建文件夹导致空列表。"""
+    """扫描 skills 目录（Hermes 兼容 SKILL.md + 旧版 .baim）。"""
     root = _expand_path(skills_dir)
     if not root:
         return []
@@ -183,43 +183,38 @@ def list_skills(skills_dir):
         except Exception as e:
             trace("S0", "warn", f"无法创建 skills 目录 {root}：{e}")
             return []
-    out = []
+    try:
+        from skills_loader import scan_skills
+
+        out = scan_skills(root)
+    except Exception as e:
+        trace("S0", "warn", f"scan_skills 失败：{e}")
+        out = []
     try:
         entries = sorted(os.listdir(root))
     except Exception as e:
         trace("S0", "warn", f"扫描 skills 目录失败：{e}")
-        return []
+        return out
+    seen = {s["name"] for s in out}
     for name in entries:
         if name.startswith("."):
             continue
         full = os.path.join(root, name)
-        skill = None
-        if os.path.isdir(full) and os.path.isfile(os.path.join(full, "SKILL.md")):
-            skill = {"name": name, "path": full, "type": "md", "source": os.path.join(full, "SKILL.md")}
-        elif os.path.isfile(full) and name.lower().endswith(".baim"):
-            skill = {"name": os.path.splitext(name)[0], "path": full, "type": "baim", "source": full}
-        if not skill:
+        if not os.path.isfile(full) or not name.lower().endswith(".baim"):
             continue
-        # 读前 20 行取描述
-        desc = ""
-        try:
-            with open(skill["source"], "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # 跳过纯注释/markdown 标题标记，取第一句实质内容
-                    if line.startswith("#") or line.startswith("//"):
-                        line = line.lstrip("#").lstrip("/").strip()
-                    if line:
-                        desc = line
-                        break
-                    if len(desc) > 200:
-                        break
-        except Exception:
-            pass
-        skill["description"] = desc or "（无描述）"
-        out.append(skill)
+        bname = os.path.splitext(name)[0]
+        if bname in seen:
+            continue
+        seen.add(bname)
+        out.append(
+            {
+                "name": bname,
+                "path": full,
+                "type": "baim",
+                "source": full,
+                "description": "（.baim 技能包）",
+            }
+        )
     trace("S0", "info", f"扫描到 {len(out)} 个 skills")
     return out
 
@@ -426,9 +421,8 @@ def classify_line(line):
 
 
 class StdoutTap(io.TextIOBase):
-    """把 AntNest 的 print 流按行切出来喂给 UI，同时原样转发到真实终端。"""
-
-    FLUSH_AT = 400  # 流式输出没有换行时的强制切片长度
+    """把 AntNest 的 print 流按行切出来喂给 UI，同时原样转发到真实终端。
+    仅在有完整换行时推送——运行日志不做流式切片。"""
 
     def __init__(self, original, sink):
         self._orig = original
@@ -449,13 +443,10 @@ class StdoutTap(io.TextIOBase):
             while "\n" in self._buf:
                 line, self._buf = self._buf.split("\n", 1)
                 self._emit(line)
-            if len(self._buf) >= self.FLUSH_AT:
-                self._emit(self._buf)
-                self._buf = ""
         return len(s)
 
     def _emit(self, line):
-        line = line.rstrip()
+        line = re.sub(r"\033\[[0-9;]*m", "", line).rstrip()
         if not line.strip():
             return
         try:
@@ -513,6 +504,7 @@ class AntNestCore:
         self._models_list = []   # /models 返回的模型 id 列表，用于精确判断 vision
         self._vision_supported = None  # 该模型是否支持图片：None=未校验(仅关键词), True/False
         self._lock = threading.Lock()
+        self._ui_settings = {}
 
     # ---------------- 事件
     def subscribe(self, fn):
@@ -539,6 +531,7 @@ class AntNestCore:
     def ensure_loaded(self, settings=None):
         if self.ready:
             return True, ""
+        settings = dict(settings or self._ui_settings or {})
         self.emit("status", state="loading", detail="正在载入 AntNest 核心…")
         trace("S1", "info", "开始导入 AntNest")
 
@@ -585,6 +578,8 @@ class AntNestCore:
             return False, err
 
         self._patch_tools()
+        self._ui_settings = dict(settings)
+        self._init_mcp(self._ui_settings)
         self.ready = True
         self.emit("status", state="ready",
                   detail=f"{getattr(mod,'ANT_MODEL_NAME','?')} · 深度上限 {getattr(mod,'MAX_DEPTH','?')}")
@@ -621,6 +616,7 @@ class AntNestCore:
     def apply_settings(self, settings):
         """改完设置不重启也能生效（下一轮起）。"""
         m = self.mod
+        self._ui_settings = dict(settings or self._ui_settings or {})
         if not m:
             return
         try:
@@ -635,6 +631,7 @@ class AntNestCore:
             if settings.get("max_depth"):
                 m.MAX_DEPTH = int(str(settings["max_depth"]).strip())
             trace("S3", "info", f"热应用：{m.ANT_MODEL_NAME} @ {m.ANT_BASE_URL} depth<={m.MAX_DEPTH}")
+            self._init_mcp(self._ui_settings)
         except Exception as e:
             trace("S3", "warn", f"热应用部分失败：{e}")
 
@@ -687,23 +684,83 @@ class AntNestCore:
             return result
 
         m.tool_executors["spawn_clone"] = wrapped_spawn
+
+        def _ui_stream(phase, text=""):
+            self.emit("stream", phase=phase, text=text or "")
+
+        m.UI_STREAM_CB = _ui_stream
         m._ui_patched = True
-        trace("S4", "info", "tool_executors.spawn_clone 已包装")
+        trace("S4", "info", "tool_executors.spawn_clone 已包装；UI 流式回调已注入")
+
+    def set_ui_settings(self, settings):
+        self._ui_settings = dict(settings or {})
+        if self.mod and self.ready:
+            self._init_mcp(self._ui_settings)
+
+    def _init_mcp(self, settings):
+        m = self.mod
+        if not m:
+            return
+        enabled = str(settings.get("mcp_enabled", "false")).lower() in ("true", "1", "yes")
+        m.MCP_ENABLED = False
+        m.MCP_HUB = None
+        if not enabled:
+            trace("S4", "info", "MCP 未启用")
+            return
+        try:
+            from mcp_client import get_hub
+
+            cfg = str(settings.get("mcp_config", "mcp.json")).strip()
+            cfg_path = cfg if os.path.isabs(cfg) else os.path.join(THIS_DIR, cfg)
+            hub = get_hub()
+            hub.load_config(cfg_path)
+            m.MCP_HUB = hub
+            m.MCP_ENABLED = True
+            trace("S4", "info", f"MCP 已加载 {len(hub.sessions)} 个服务器，{len(hub.tool_index)} 个工具")
+            self.log("sys", f"MCP 就绪：{len(hub.sessions)} 服务器 / {len(hub.tool_index)} 工具")
+        except Exception as e:
+            trace("S4", "warn", f"MCP 加载失败：{e}")
+            self.log("warn", f"MCP 加载失败：{e}")
+
+    def _inject_skill(self, text, skill_name):
+        settings = self._ui_settings or {}
+        enabled = str(settings.get("skills_enabled", "true")).lower() in ("true", "1", "yes")
+        if not skill_name or not enabled:
+            return text
+        try:
+            from skills_loader import load_skill, format_skill_block
+
+            skill = load_skill(settings.get("skills_dir", ""), skill_name)
+            if not skill:
+                trace("S5", "warn", f"Skill 未找到：{skill_name}")
+                return text
+            block = format_skill_block(skill)
+            trace("S5", "info", f"已注入 Skill：{skill.get('name')}（{len(block)} 字）")
+            return f"{text}\n\n---\n\n{block}"
+        except Exception as e:
+            trace("S5", "warn", f"Skill 注入失败：{e}")
+            return text
 
     # ---------------- S5 单轮执行
-    def send(self, text, image_b64=None, image_mime="image/png"):
+    def send(self, text, image_b64=None, image_mime="image/png", skill=""):
         text = (text or "").strip()
         if not text and not image_b64:
             return False, "空消息"
         if self.busy:
             self.emit("status", state="busy", detail="蚁后正在思考，请稍候")
             return False, "busy"
-        threading.Thread(target=self._turn, args=(text, image_b64, image_mime), daemon=True).start()
+        threading.Thread(
+            target=self._turn,
+            args=(text, image_b64, image_mime, skill or ""),
+            daemon=True,
+        ).start()
         return True, ""
 
-    def _turn(self, text, image_b64=None, image_mime="image/png"):
+    def _turn(self, text, image_b64=None, image_mime="image/png", skill=""):
         self.busy = True
         self.emit("turn", state="start")
+        if self.mod:
+            self.mod.agent_reset_cancel()
         display_text = text
         if image_b64:
             display_text += "\n[附带图片]"
@@ -733,16 +790,19 @@ class AntNestCore:
             if image_b64:
                 # 使用 OpenAI vision 格式；核心只是原样序列化 messages，不会破坏数组 content
                 content = []
-                if text:
-                    content.append({"type": "text", "text": m.clean_input(text)})
+                user_text = self._inject_skill(text, skill) if text else ""
+                if user_text:
+                    content.append({"type": "text", "text": m.clean_input(user_text)})
                 content.append({
                     "type": "image_url",
                     "image_url": {"url": f"data:{image_mime};base64,{image_b64}"}
                 })
                 m.messages.append({"role": "user", "content": content})
             else:
-                m.messages.append({"role": "user", "content": m.clean_input(text)})
+                final_text = self._inject_skill(text, skill)
+                m.messages.append({"role": "user", "content": m.clean_input(final_text)})
             self.log("queen", f"收到任务：{text[:80]}")
+            self.emit("stream", phase="start", text="")
 
             old_out = sys.stdout
             sys.stdout = StdoutTap(old_out, lambda ln: self.log(classify_line(ln) or "sys", ln))
@@ -755,15 +815,28 @@ class AntNestCore:
                     pass
                 sys.stdout = old_out
 
-            # S7 收尾：取本轮最后一条有内容的 assistant 消息
-            replies = [
-                (x.get("content") or "").strip()
-                for x in m.messages[start:]
-                if x.get("role") == "assistant" and (x.get("content") or "").strip()
-            ]
-            if replies:
-                self.emit("chat", role="queen", text=replies[-1])
-                trace("S7", "info", f"回复 {len(replies[-1])} 字，本轮新增 {len(m.messages)-start} 条消息")
+            cancelled = bool(getattr(m, "AGENT_CANCEL", False))
+
+            # S7 收尾：取本轮最后一条 assistant 消息
+            last_asst = None
+            for x in reversed(m.messages[start:]):
+                if x.get("role") == "assistant":
+                    last_asst = x
+                    break
+            reply_text = (last_asst.get("content") or "").strip() if last_asst else ""
+            reply_reason = (last_asst.get("reasoning_content") or "").strip() if last_asst else ""
+            self.emit(
+                "stream",
+                phase="end",
+                text=reply_text,
+                reasoning=reply_reason,
+            )
+            if cancelled:
+                self.emit("chat", role="queen", text="⏹ 操作已被强行停止。")
+                trace("S7", "warn", "用户强行停止")
+            elif reply_text:
+                self.emit("chat", role="queen", text=reply_text, reasoning=reply_reason)
+                trace("S7", "info", f"回复 {len(reply_text)} 字，本轮新增 {len(m.messages)-start} 条消息")
             else:
                 self.emit("chat", role="queen", text="（本轮没有文本回复，详见运行日志）")
                 trace("S7", "warn", "本轮无 assistant 文本")
@@ -772,9 +845,20 @@ class AntNestCore:
             self.log("warn", f"[S5] 执行异常：{e}")
             self.emit("chat", role="queen", text=f"执行出错：{e}\n（详见 .antnest/ui_trace.log）")
         finally:
+            if self.mod:
+                self.mod.agent_reset_cancel()
             self.busy = False
             self.emit("turn", state="end")
             trace("S5", "info", "turn 结束")
+
+    def stop(self):
+        """强行停止当前蚁后操作（中断 LLM 流与工蚁）。"""
+        if not self.busy:
+            return False, "idle"
+        if self.mod:
+            self.mod.agent_cancel()
+        self.log("warn", "用户强行停止")
+        return True, "stopping"
 
     # ---------------- 其它
     def verify_async(self, settings, on_done=None):

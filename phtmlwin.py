@@ -61,7 +61,11 @@ class El:
             elif k == "bind" and isinstance(v, tuple) and len(v) == 2:
                 self._bind = v
             elif k == "onclick" and isinstance(v, str):
-                self._bind = ("click", v)
+                # 含 JS 调用语法 → 原生 onclick；简单标识符 → 走路由绑定
+                if any(c in v for c in "() ."):
+                    self.attrs["onclick"] = v
+                else:
+                    self._bind = ("click", v)
             elif k == "oninput" and isinstance(v, str):
                 self._bind = ("input", v)
             elif k == "onchange" and isinstance(v, str):

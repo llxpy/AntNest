@@ -21,71 +21,17 @@ import urllib.error
 from pathlib import Path
 from datetime import date
 
+import code_tools as ct
+import antnest_clone_worker
+import antnest_session as session_mod
+
 # ====================== 路径解析 ======================
 _resolved = Path(__file__).resolve()
 THIS_FILE = str(_resolved)
 THIS_DIR = str(_resolved.parent)
 
-# ====================== Clone 模式早期入口 ======================
-# 工蚁不需要 LLM，在导入阶段就拦截，避免不必要的 API 检查和模块加载
-if os.environ.get("AN_CLONE_MODE") == "1":
-    _clone_command = os.environ.get("AN_CLONE_COMMAND", "")
-    _clone_timeout = int(os.environ.get("AN_CLONE_TIMEOUT", "300"))
-    _result_file = os.environ.get("AN_RESULT_FILE", "")
-    _clone_dir = os.environ.get("AN_CLONE_DIR", os.getcwd())
-
-    # 如果通过文件传递命令，从文件读取
-    _cmd_file = os.environ.get("AN_CLONE_COMMAND_FILE", "")
-    if _cmd_file and os.path.exists(_cmd_file):
-        _clone_command = Path(_cmd_file).read_text(encoding="utf-8")
-
-    _shell = "powershell" if os.name == "nt" else "bash"
-    _shell_flag = "-Command" if os.name == "nt" else "-c"
-
-    print(f"[工蚁] 开始执行: {_clone_command[:100]}...")
-
-    # ====== 安全过滤：拒绝明显危险的系统级命令 ======
-    _cmd_lower = _clone_command.lower()
-    _dangerous_patterns = [
-        (r"\bformat\s+[a-z]:", "格式化磁盘"),
-        (r"\bdel\s+/[fs]\s+[a-z]:\\", "强制删除系统文件"),
-        (r"\brm\s+-rf\s+/", "删除根目录"),
-        (r"\brmdir\s+/[sq]\s+[a-z]:\\", "删除系统目录"),
-        (r"\bshutdown\s+/[rp]\b", "关机/重启"),
-        (r"\bdeltree\b", "删除目录树"),
-    ]
-    for pattern, desc in _dangerous_patterns:
-        if re.search(pattern, _cmd_lower):
-            _output = {"status": "blocked", "error": f"工蚁拒绝执行危险命令（{desc}）"}
-            if _result_file:
-                with open(_result_file, "w", encoding="utf-8") as _f:
-                    json.dump(_output, _f, ensure_ascii=False, indent=2)
-            print(f"[工蚁] 拦截：{desc}")
-            sys.exit(0)
-
-    try:
-        _result = subprocess.run(
-            [_shell, _shell_flag, _clone_command],
-            capture_output=True, text=True, errors="replace",
-            timeout=_clone_timeout, shell=False, cwd=_clone_dir,
-        )
-        _output = {
-            "status": "ok" if _result.returncode == 0 else "error",
-            "exit_code": _result.returncode,
-            "stdout": _result.stdout,
-            "stderr": _result.stderr if _result.stderr else "",
-        }
-    except subprocess.TimeoutExpired:
-        _output = {"status": "timeout", "error": f"命令执行超时（{_clone_timeout}秒）"}
-    except Exception as _e:
-        _output = {"status": "error", "error": str(_e)}
-
-    if _result_file:
-        with open(_result_file, "w", encoding="utf-8") as _f:
-            json.dump(_output, _f, ensure_ascii=False, indent=2)
-
-    print(f"[工蚁] 完成，exit_code={_output.get('exit_code', 'N/A')}")
-    sys.exit(0)
+# 工蚁模式：在 LLM 加载前执行并退出
+antnest_clone_worker.run_if_clone_mode()
 
 # ====================== LLM 配置区（仅蚁后模式到达此处） ======================
 # 优先级：环境变量 > config.json > 默认值
@@ -160,6 +106,51 @@ TOOL_RESULT_LEN = int(os.environ.get("ANT_TOOL_RESULT_LEN") or _config_agent.get
 ALLOW_ALL_CLI = False
 COMPACT_PANIC = False
 LAST_USAGE = None
+AGENT_CANCEL = False
+_ACTIVE_STREAM_RESP = None
+_ACTIVE_CLONE_PROC = None
+
+# UI 流式回调（由 antnest_bridge 注入）：callable(phase, text)
+# phase: reasoning_start | reasoning | reasoning_end | content
+UI_STREAM_CB = None
+
+# MCP（由 antnest_bridge 在 ensure_loaded 时配置）
+MCP_ENABLED = False
+MCP_HUB = None
+
+
+def agent_reset_cancel():
+    global AGENT_CANCEL
+    AGENT_CANCEL = False
+
+
+def agent_cancel():
+    """用户强行停止：中断流式 LLM 与正在运行的工蚁。"""
+    global AGENT_CANCEL
+    AGENT_CANCEL = True
+    resp = _ACTIVE_STREAM_RESP
+    if resp is not None:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    proc = _ACTIVE_CLONE_PROC
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _stream_emit(phase, text=""):
+    cb = UI_STREAM_CB
+    if not cb:
+        return False
+    try:
+        cb(phase, text)
+    except Exception:
+        pass
+    return True
 
 ANT_HOME = os.environ.get("ANT_HOME") or os.path.join(THIS_DIR, ".antnest")
 NEST_FILE = os.path.join(ANT_HOME, "NEST.md")
@@ -276,8 +267,13 @@ SYSTEM_PROMPT = f"""
 4. 任务完成后主动验证结果
 
 # 工具调用说明
-- spawn_clone：生成工蚁执行命令。工蚁在隔离目录中运行，执行完毕后销毁
-- run_cli：仅在 clone 模式（depth>0）下可用，直接在本地执行命令
+- spawn_clone：生成工蚁执行命令（改系统、跑构建、复杂 shell 必须用此工具）
+- view_file：派工蚁只读查看文件（分段、带行号）
+- list_dir：派工蚁只读列目录
+- grep_files：派工蚁在目录/文件中搜索文本（写代码前定位用）
+- write_file：派工蚁写入/覆盖文件（蚁后不亲自写盘）
+- search_replace：派工蚁精确替换文件中的一段文本（改代码首选，比 write_file 整文件覆盖更安全）
+- run_cli：仅在 clone 模式（depth>0）下可用
 - leave_memory_hints：记忆压缩时保留关键线索
 
 # 固化的知识及规则（读取自 {NEST_FILE}）
@@ -332,6 +328,143 @@ spawn_clone_schema = {
     },
 }
 
+view_file_schema = {
+    "type": "function",
+    "function": {
+        "name": "view_file",
+        "description": (
+            "派工蚁只读查看文件内容（蚁后自己不读文件）。"
+            "相对路径基于项目目录；大文件请用 start_line/end_line 分段查看。"
+            "返回带行号的文本。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "文件路径（相对或绝对）"},
+                "start_line": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "起始行号（从 1 开始，含）",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "结束行号（含）；0 表示读到文件末尾",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+}
+
+list_dir_schema = {
+    "type": "function",
+    "function": {
+        "name": "list_dir",
+        "description": (
+            "派工蚁只读列出目录内容（蚁后自己不列目录）。"
+            "相对路径基于项目目录。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "default": ".",
+                    "description": "目录路径（相对或绝对）",
+                },
+                "max_entries": {
+                    "type": "integer",
+                    "default": 100,
+                    "description": "最多返回条目数",
+                },
+            },
+        },
+    },
+}
+
+grep_files_schema = {
+    "type": "function",
+    "function": {
+        "name": "grep_files",
+        "description": (
+            "派工蚁在目录或文件中搜索匹配行（正则）。"
+            "用于定位符号、函数、配置项。相对路径基于项目目录。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string", "description": "正则表达式"},
+                "path": {
+                    "type": "string",
+                    "default": ".",
+                    "description": "搜索根路径（文件或目录）",
+                },
+                "glob": {
+                    "type": "string",
+                    "default": "*",
+                    "description": "文件名 glob，如 *.py",
+                },
+                "max_matches": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "最多返回匹配数",
+                },
+            },
+            "required": ["pattern"],
+        },
+    },
+}
+
+write_file_schema = {
+    "type": "function",
+    "function": {
+        "name": "write_file",
+        "description": (
+            "派工蚁写入或覆盖文件（蚁后自己不写盘）。"
+            "会自动创建父目录。相对路径基于项目目录。"
+            "改已有文件时优先用 search_replace。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "文件路径"},
+                "content": {"type": "string", "description": "完整文件内容"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+}
+
+search_replace_schema = {
+    "type": "function",
+    "function": {
+        "name": "search_replace",
+        "description": (
+            "派工蚁在文件中精确替换一段文本（蚁后自己不写盘）。"
+            "默认只替换第一处；若 old_string 多处出现且未设 replace_all，会报错以防误改。"
+            "修改已有代码时应优先于 write_file。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "文件路径"},
+                "old_string": {
+                    "type": "string",
+                    "description": "要被替换的原文（需与文件内容完全一致，含缩进与换行）",
+                },
+                "new_string": {"type": "string", "description": "替换后的内容"},
+                "replace_all": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "true=替换所有匹配；false=仅第一处，且多处匹配时报错",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    },
+}
+
 run_cli_schema = {
     "type": "function",
     "function": {
@@ -373,6 +506,79 @@ memory_hints_schema = {
     },
 }
 
+mcp_call_schema = {
+    "type": "function",
+    "function": {
+        "name": "mcp_call",
+        "description": (
+            "调用已连接的 MCP 服务器工具（需先在设置中启用 MCP）。"
+            "server 为 mcp.json 里配置的服务器名，tool 为 tools/list 返回的工具名，"
+            "arguments 为 JSON 对象字符串。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "server": {"type": "string", "description": "MCP 服务器名称"},
+                "tool": {"type": "string", "description": "工具名称"},
+                "arguments": {
+                    "type": "string",
+                    "default": "{}",
+                    "description": "JSON 格式的参数对象",
+                },
+            },
+            "required": ["server", "tool"],
+        },
+    },
+}
+
+mcp_list_tools_schema = {
+    "type": "function",
+    "function": {
+        "name": "mcp_list_tools",
+        "description": "列出所有已连接 MCP 服务器及其工具（启用 MCP 后可用）。",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
+def get_queen_tools(compact_panic: bool = False) -> list:
+    """蚁后可用工具列表（含可选 MCP）。"""
+    if compact_panic:
+        base = [spawn_clone_schema, memory_hints_schema]
+    else:
+        base = [
+            spawn_clone_schema,
+            view_file_schema,
+            list_dir_schema,
+            grep_files_schema,
+            write_file_schema,
+            search_replace_schema,
+        ]
+    if MCP_ENABLED and MCP_HUB is not None:
+        base.extend([mcp_call_schema, mcp_list_tools_schema])
+    return base
+
+
+def mcp_call(server: str, tool: str, arguments: str = "{}") -> str:
+    if not MCP_ENABLED or MCP_HUB is None:
+        return json.dumps({"status": "error", "error": "MCP 未启用或未加载"}, ensure_ascii=False)
+    try:
+        args = json.loads(arguments or "{}")
+        if not isinstance(args, dict):
+            return json.dumps({"status": "error", "error": "arguments 必须是 JSON 对象"}, ensure_ascii=False)
+        return MCP_HUB.call(server, tool, args)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
+
+
+def mcp_list_tools() -> str:
+    if not MCP_ENABLED or MCP_HUB is None:
+        return json.dumps({"status": "error", "error": "MCP 未启用或未加载"}, ensure_ascii=False)
+    try:
+        return json.dumps({"status": "ok", "tools": MCP_HUB.list_catalog()}, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
+
 # ====================== 工蚁生命周期 ======================
 def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     """
@@ -400,9 +606,13 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     clone_dir = os.path.join(CLONE_POOL_DIR, f"clone_{clone_id}")
     os.makedirs(clone_dir, exist_ok=True)
 
-    # 复制自身到隔离目录
+    # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(THIS_FILE, clone_script)
+    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py"):
+        _src = os.path.join(THIS_DIR, _dep)
+        if os.path.isfile(_src):
+            shutil.copy2(_src, os.path.join(clone_dir, _dep))
 
     result_file = os.path.join(clone_dir, "result.json")
     log_file = os.path.join(clone_dir, "clone.log")
@@ -443,9 +653,29 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
             text=True,
             errors="replace",
         )
+        global _ACTIVE_CLONE_PROC
+        _ACTIVE_CLONE_PROC = proc
 
         try:
-            stdout, stderr = proc.communicate(timeout=timeout + 60)
+            deadline = time.time() + timeout + 60
+            while proc.poll() is None:
+                if AGENT_CANCEL:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    return json.dumps({
+                        "status": "cancelled",
+                        "error": "用户强行停止，工蚁已终止",
+                    }, ensure_ascii=False)
+                if time.time() > deadline:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    return json.dumps({
+                        "status": "timeout",
+                        "error": f"工蚁执行超时（{timeout}秒）",
+                        "clone_dir": clone_dir,
+                    }, ensure_ascii=False)
+                time.sleep(0.15)
+            stdout, stderr = proc.communicate()
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout, stderr = proc.communicate()
@@ -454,6 +684,8 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 "error": f"工蚁执行超时（{timeout}秒）",
                 "clone_dir": clone_dir,
             }, ensure_ascii=False)
+        finally:
+            _ACTIVE_CLONE_PROC = None
 
         # 读取工蚁结果
         if os.path.exists(result_file):
@@ -484,6 +716,71 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
             shutil.rmtree(clone_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+def _resolve_path(path: str) -> Path:
+    return ct.resolve_path(path, PROJECT_DIR)
+
+
+def _worker_py_cmd(py_code: str) -> str:
+    return ct.worker_py_cmd(py_code, is_windows=IS_WINDOWS, python_exe=sys.executable)
+
+
+def _unwrap_worker_json(spawn_result: str) -> str:
+    return ct.unwrap_worker_json(spawn_result)
+
+
+def view_file(path: str, start_line: int = 1, end_line: int = 0) -> str:
+    """派工蚁只读查看文件（蚁后自己不读）。"""
+    p = _resolve_path(path)
+    py = ct.build_view_file_script(p, start_line, end_line)
+    raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"查看·{p.name}")
+    return _unwrap_worker_json(raw)
+
+
+def list_dir(path: str = ".", max_entries: int = 100) -> str:
+    """派工蚁只读列目录（蚁后自己不列）。"""
+    p = _resolve_path(path)
+    py = ct.build_list_dir_script(p, max_entries)
+    raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"列目录·{p.name}")
+    return _unwrap_worker_json(raw)
+
+
+def grep_files(
+    pattern: str,
+    path: str = ".",
+    glob: str = "*",
+    max_matches: int = 50,
+) -> str:
+    """派工蚁搜索文件内容（蚁后自己不搜）。"""
+    err = ct.validate_grep_pattern(pattern)
+    if err:
+        return json.dumps({"status": "error", "error": f"无效正则：{err}"}, ensure_ascii=False)
+    p = _resolve_path(path)
+    py = ct.build_grep_script(p, pattern, glob, max_matches)
+    raw = spawn_clone(command=_worker_py_cmd(py), timeout=120, label=f"搜索·{pattern[:24]}")
+    return _unwrap_worker_json(raw)
+
+
+def write_file(path: str, content: str) -> str:
+    """派工蚁写入文件（蚁后自己不写）。"""
+    p = _resolve_path(path)
+    py = ct.build_write_file_script(p, content or "")
+    raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"写入·{p.name}")
+    return _unwrap_worker_json(raw)
+
+
+def search_replace(
+    path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """派工蚁精确替换文件片段（蚁后自己不写）。"""
+    p = _resolve_path(path)
+    py = ct.build_search_replace_script(p, old_string, new_string, replace_all)
+    raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"替换·{p.name}")
+    return _unwrap_worker_json(raw)
 
 
 def run_cli(command: str, timeout: int = 300) -> str:
@@ -519,6 +816,11 @@ def _trim_tool_content(msg):
 def leave_memory_hints(hints):
     global messages, COMPACT_PANIC
 
+    try:
+        nest_text = Path(NEST_FILE).read_text(encoding="utf-8") if Path(NEST_FILE).exists() else ""
+    except Exception:
+        nest_text = globals().get("nest_md", "") or ""
+
     compact_i = -1
     for i in range(len(messages) - 1, -1, -1):
         if messages[i]["role"] == "user" and messages[i]["content"] == COMPACT_PROMPT:
@@ -539,7 +841,7 @@ def leave_memory_hints(hints):
         {
             "role": "system",
             "content": SYSTEM_PROMPT.format(
-                nest_md=nest_md or "无", hints=hints or "无", env_info=ENV_INFO
+                nest_md=nest_text or "无", hints=hints or "无", env_info=ENV_INFO
             ),
         },
         {
@@ -642,6 +944,8 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
     )
     try:
         resp = urllib.request.urlopen(req)
+        global _ACTIVE_STREAM_RESP
+        _ACTIVE_STREAM_RESP = resp
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
         raise Exception(f"LLM调用失败，HTTP {e.code}: {raw[:500]}")
@@ -657,6 +961,8 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
 
     try:
         for raw_line in resp:
+            if AGENT_CANCEL:
+                break
             line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
             if not line:
                 continue
@@ -690,9 +996,11 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
             if reasoning_content:
                 if not is_thinking:
                     is_thinking = True
-                    sys.stdout.write("\033[2m💭 ")
-                sys.stdout.write(reasoning_content)
-                sys.stdout.flush()
+                    if not _stream_emit("reasoning_start"):
+                        sys.stdout.write("\033[2m💭 ")
+                if not _stream_emit("reasoning", reasoning_content):
+                    sys.stdout.write(reasoning_content)
+                    sys.stdout.flush()
                 reasoning_parts.append(reasoning_content)
                 for c in reasoning_content:
                     if detector.add_char(c):
@@ -702,9 +1010,11 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
             if text:
                 if is_thinking:
                     is_thinking = False
-                    sys.stdout.write("\033[0m\n")
-                sys.stdout.write(text)
-                sys.stdout.flush()
+                    if not _stream_emit("reasoning_end"):
+                        sys.stdout.write("\033[0m\n")
+                if not _stream_emit("content", text):
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
                 content_parts.append(text)
 
             if "tool_calls" in delta and delta["tool_calls"]:
@@ -729,6 +1039,7 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
             sys.stdout.write("\033[0m\n")
     finally:
         resp.close()
+        _ACTIVE_STREAM_RESP = None
         if is_thinking:
             sys.stdout.write("\033[0m\n")
             sys.stdout.flush()
@@ -752,8 +1063,15 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
 # ====================== 工具执行器注册 ======================
 tool_executors = {
     "spawn_clone": spawn_clone,
+    "view_file": view_file,
+    "list_dir": list_dir,
+    "grep_files": grep_files,
+    "write_file": write_file,
+    "search_replace": search_replace,
     "run_cli": run_cli,
     "leave_memory_hints": leave_memory_hints,
+    "mcp_call": mcp_call,
+    "mcp_list_tools": mcp_list_tools,
 }
 
 
@@ -768,7 +1086,7 @@ def _detect_malformed_tool_call(content: str):
         return True
     # JSON 格式：文本中以 {"name": 开头且有 "arguments" 键（模拟 function call）
     if re.search(
-        r'\{\s*"name"\s*:\s*"(?:spawn_clone|run_cli|leave_memory_hints)"\s*,\s*"arguments"',
+        r'\{\s*"name"\s*:\s*"(?:spawn_clone|view_file|list_dir|grep_files|write_file|search_replace|run_cli|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
         content_lower,
     ):
         return True
@@ -779,14 +1097,17 @@ def agent_single_loop():
     global COMPACT_PANIC, LAST_USAGE
     break_loop = False
     while not break_loop:
+        if AGENT_CANCEL:
+            print("\n\n⏹ 用户强行停止")
+            messages.append({
+                "role": "user",
+                "content": "《系统提示》用户已强行停止当前操作。请简要确认已中断，并询问是否继续。",
+            })
+            break
         try:
             sys.stdout.write("\n[*] ANTNEST: ")
             sys.stdout.flush()
-            tools = (
-                [spawn_clone_schema, memory_hints_schema]
-                if COMPACT_PANIC
-                else [spawn_clone_schema]
-            )
+            tools = get_queen_tools(COMPACT_PANIC)
             try:
                 msg, usage = llm_chat_stream(messages, tools=tools)
             except ThinkRepeatError:
@@ -799,6 +1120,9 @@ def agent_single_loop():
 
             LAST_USAGE = usage
             messages.append(msg)
+
+            if AGENT_CANCEL:
+                break
 
             sys.stdout.write("\n\n")
             sys.stdout.flush()
@@ -867,6 +1191,10 @@ def agent_single_loop():
                         "name": name,
                         "content": clean_input(result),
                     })
+
+                if AGENT_CANCEL:
+                    break_loop = True
+                    break
 
                 if (
                     not COMPACT_PANIC
@@ -948,108 +1276,39 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
 
 # ====================== Session 管理 ======================
 def get_session_file():
-    dir_hash = re.sub(r"[\\/:]", "_", PROJECT_DIR)
-    return os.path.join(SESSION_DIR, f"{dir_hash}.json")
+    return session_mod.get_session_file(PROJECT_DIR, SESSION_DIR)
 
 
 def acquire_lock():
-    lock_file = get_session_file().replace(".json", ".lock")
-    if os.path.exists(lock_file):
-        try:
-            pid = int(Path(lock_file).read_text().strip())
-            if IS_WINDOWS:
-                result = subprocess.run(
-                    ["tasklist", "/FI", f"PID eq {pid}"],
-                    capture_output=True,
-                    text=True,
-                )
-                alive = str(pid) in result.stdout
-            else:
-                alive = os.path.exists(f"/proc/{pid}")
-            if alive:
-                print(f"错误：该目录已有 AntNest 实例运行（PID: {pid}），不允许重复启动。")
-                print(f"如需强制启动，请先删除锁文件：{lock_file}")
-                sys.exit(1)
-        except Exception:
-            pass
-    Path(lock_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(lock_file).write_text(str(os.getpid()))
+    session_mod.acquire_lock(PROJECT_DIR, SESSION_DIR, IS_WINDOWS)
 
 
 def release_lock():
-    try:
-        os.remove(get_session_file().replace(".json", ".lock"))
-    except Exception:
-        pass
+    session_mod.release_lock(PROJECT_DIR, SESSION_DIR)
 
 
 def save_session(messages):
-    os.makedirs(SESSION_DIR, exist_ok=True)
-    session_file = get_session_file()
-    with open(session_file, "w", encoding="utf-8") as f:
-        json.dump(messages, f, ensure_ascii=False, indent=2)
-    print(f"\n> 会话已保存到：{session_file}")
+    session_mod.save_session(messages, PROJECT_DIR, SESSION_DIR)
 
 
 def load_session():
-    session_file = get_session_file()
-    try:
-        with open(session_file, "r", encoding="utf-8") as f:
-            messages = json.load(f)
-
-        messages[0] = {
-            "role": "system",
-            "content": SYSTEM_PROMPT.format(
-                nest_md=nest_md or "无", hints=hints or "无", env_info=ENV_INFO
-            ),
-        }
-
-        last_msg = messages[-1]
-        if last_msg["role"] == "assistant":
-            if "tool_calls" in last_msg:
-                del last_msg["tool_calls"]
-            if not last_msg["content"]:
-                del messages[-1]
-        size_KB = (os.path.getsize(session_file) + 999) // 1000
-        print(f"\n> 会话已从文件加载：{session_file} ({format(size_KB, ',')} KB)")
-        return messages
-    except Exception:
-        return None
+    return session_mod.load_session(
+        None,
+        SYSTEM_PROMPT,
+        nest_md,
+        hints,
+        ENV_INFO,
+        PROJECT_DIR,
+        SESSION_DIR,
+    )
 
 
 def list_sessions():
-    session_file = get_session_file()
-    session_name = os.path.basename(session_file)
-    print(f"目录: {SESSION_DIR}\n")
-    if not os.path.exists(SESSION_DIR):
-        print("> 没有找到任何会话记录。")
-        return
-
-    files = [f for f in os.listdir(SESSION_DIR) if f.endswith(".json")]
-    if not files:
-        print("> 没有找到任何会话记录。")
-        return
-
-    print(f"> 共找到 {len(files)} 个会话:")
-    print("-" * 60)
-    for i, f in enumerate(sorted(files), start=1):
-        path = os.path.join(SESSION_DIR, f)
-        size_KB = (os.path.getsize(path) + 999) // 1000
-        marker = "    <=== 当前目录" if f == session_name else ""
-        print(f"  {i}. {f} ({format(size_KB, ',')} KB){marker}")
-    print("-" * 60)
+    session_mod.list_sessions(PROJECT_DIR, SESSION_DIR)
 
 
 def clear_session():
-    session_file = get_session_file()
-    if os.path.exists(session_file):
-        try:
-            os.remove(session_file)
-            print(f"> 已清除会话：{session_file}")
-        except Exception as e:
-            print(f"> 清除会话失败：{e}")
-    else:
-        print(f"> 会话不存在：{session_file}")
+    session_mod.clear_session(PROJECT_DIR, SESSION_DIR)
 
 
 # ====================== 系统终端信号处理 ======================

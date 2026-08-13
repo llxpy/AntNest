@@ -46,6 +46,8 @@ if os.environ.get("ANT_INSTALLED") == "1":
 
 from phtmlwin import Win, ui
 import antnest_bridge as bridge
+from ui_assets_loader import load_css, load_js
+import ui_render
 
 app = Win(title="AntNest · 在暗面构建", width=1260, height=800,
           gui=os.environ.get("ANT_WEBVIEW_GUI") or None,
@@ -109,243 +111,15 @@ def check_update():
         pass
 
 # ------------------------------------------------------------------ 设计 token
-app.css("""
-:root, [data-theme="dark"]{
-  --bg-top:#0a1120; --bg-bottom:#05080f; --accent:#4CC9F0;
-  --card:rgba(17,25,40,0.72); --card-border:rgba(255,255,255,0.10);
-  --text:#e6f1ff; --muted:#8892a4; --success:#3ddc97; --warn:#ff6b6b;
-  --surface:rgba(255,255,255,0.02); --topbar-bg:rgba(10,17,32,0.5);
-}
-[data-theme="light"]{
-  --bg-top:#eef2f7; --bg-bottom:#dbe3ee; --accent:#1a73e8;
-  --card:rgba(255,255,255,0.82); --card-border:rgba(15,23,42,0.10);
-  --text:#0f172a; --muted:#5b6776; --success:#16a34a; --warn:#dc2626;
-  --surface:rgba(15,23,42,0.04); --topbar-bg:rgba(255,255,255,0.55);
-}
-[data-theme="midnight"]{
-  --bg-top:#050505; --bg-bottom:#000000; --accent:#7dd3fc;
-  --card:rgba(20,20,20,0.72); --card-border:rgba(255,255,255,0.10);
-  --text:#f5f5f5; --muted:#9ca3af; --success:#4ade80; --warn:#f87171;
-  --surface:rgba(255,255,255,0.03); --topbar-bg:rgba(0,0,0,0.5);
-}
-[data-theme="teal"]{
-  --bg-top:#04181a; --bg-bottom:#020c0e; --accent:#2dd4bf;
-  --card:rgba(13,38,40,0.72); --card-border:rgba(255,255,255,0.10);
-  --text:#e6fffb; --muted:#7c9b98; --success:#34d399; --warn:#fb7185;
-  --surface:rgba(255,255,255,0.02); --topbar-bg:rgba(4,24,26,0.5);
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0; color:var(--text); display:flex; flex-direction:column; height:100vh;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
-  background:
-    radial-gradient(1100px 760px at 78% -12%, rgba(76,201,240,0.10), transparent 60%),
-    linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
-}
-.topbar{display:flex; align-items:center; gap:12px; padding:14px 24px;
-  border-bottom:1px solid var(--card-border); background:var(--topbar-bg); backdrop-filter:blur(8px); flex-shrink:0}
-.brand{display:flex; align-items:center; font-size:20px; font-weight:700; letter-spacing:.5px}
-.brand-logo{width:22px; height:22px; margin-right:8px; fill:var(--accent);
-  filter:drop-shadow(0 0 5px var(--accent)); animation:breathe 2.4s ease-in-out infinite}
-@keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
-.tag{font-size:12px; color:var(--muted); border:1px solid var(--card-border); border-radius:999px; padding:3px 10px}
-.spacer{flex:1}
-.pill{font-size:11px; padding:4px 11px; border-radius:999px; font-weight:700; white-space:nowrap;
-  display:inline-flex; align-items:center; gap:5px; text-transform:uppercase; letter-spacing:.3px}
-.pill::before{content:""; display:inline-block; width:6px; height:6px; border-radius:50%; background:currentColor}
-.pill.thinking{color:var(--accent); border:1px solid rgba(76,201,240,.45); background:rgba(76,201,240,.10)}
-.pill.ok{color:var(--success); border:1px solid rgba(61,220,151,.35); background:rgba(61,220,151,.12)}
-.pill.fail{color:var(--warn); border:1px solid rgba(255,107,107,.35); background:rgba(255,107,107,.12)}
-.pill.run{color:var(--accent); border:1px solid rgba(76,201,240,.35); background:rgba(76,201,240,.10)}
-.pill.idle{color:var(--muted); border:1px solid var(--card-border); background:var(--surface)}
-.empty{color:var(--muted); font-size:13px; padding:14px 4px; text-align:center; line-height:1.7}
-
-.main{flex:1; display:grid; grid-template-columns:1fr 1fr; gap:18px; padding:18px 24px; overflow:hidden; min-height:0}
-.card{background:var(--card); border:1px solid var(--card-border); border-radius:14px;
-  padding:16px 18px; backdrop-filter:blur(10px); margin-bottom:14px}
-.card h2{margin:0 0 12px; font-size:15px; font-weight:700; display:flex; align-items:center; gap:10px}
-.muted{color:var(--muted); font-size:13px; margin:0}
-
-/* 聊天栏 */
-.chat-col{display:flex; flex-direction:column; min-height:0}
-.chat{display:flex; flex-direction:column; min-height:0; flex:1}
-.chat-msgs{flex:1; overflow:auto; display:flex; flex-direction:column; padding:6px 4px}
-.bubble{max-width:82%; padding:10px 14px; border-radius:12px; margin-bottom:10px; line-height:1.55; font-size:14px; white-space:pre-wrap; word-break:break-word}
-.bubble.user{align-self:flex-end; background:rgba(76,201,240,0.15); border:1px solid rgba(76,201,240,0.4)}
-.bubble.queen{align-self:flex-start; background:rgba(255,255,255,0.04); border:1px solid var(--card-border)}
-.chat-input-row{display:flex; gap:8px; margin-top:12px; flex-shrink:0}
-.chat-input{flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:10px; padding:10px 42px 10px 12px; color:var(--text); font-size:14px; outline:none}
-.chat-input::placeholder{color:var(--muted)}
-
-/* 监控栏 */
-.monitor-col{overflow:auto; min-height:0}
-.subtask{display:flex; align-items:flex-start; gap:12px; padding:13px; border-radius:12px;
-  border:1px solid var(--card-border); background:rgba(255,255,255,0.02); margin-bottom:10px}
-.subtask .idx{display:flex; align-items:center; justify-content:center; width:26px; height:26px;
-  border-radius:8px; background:rgba(76,201,240,0.10); color:var(--accent); font-size:12px; font-weight:700; flex-shrink:0}
-.subtask .body{flex:1}
-.subtask .top{display:flex; align-items:center; justify-content:space-between; gap:10px}
-.subtask .title{font-weight:600; font-size:14px}
-.subtask .body{flex:1; min-width:0}
-.subtask .worker{font-size:12px; color:var(--muted); margin-top:4px}
-.worker-card{padding:13px; border-radius:12px; border:1px solid var(--card-border); margin-bottom:10px; background:rgba(255,255,255,0.02)}
-.worker-card .top{display:flex; align-items:center; gap:10px; margin-bottom:4px}
-.worker-card .name{font-weight:600}
-.worker-card .meta{font-size:12px; color:var(--muted); margin-top:2px}
-
-/* 结构化日志 */
-.log{display:flex; flex-direction:column; gap:8px; max-height:260px; overflow:auto}
-.log-line{display:flex; gap:10px; align-items:baseline; padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.02); border-left:3px solid transparent; font-size:13px}
-.log-line:hover{background:rgba(255,255,255,0.04)}
-.log-time{font-family:ui-monospace,Menlo,monospace; color:var(--muted); font-size:12px; white-space:nowrap}
-.log-tag{font-size:11px; padding:2px 7px; border-radius:6px; font-weight:600; white-space:nowrap}
-.log-tag.sys{color:var(--accent); border:1px solid rgba(76,201,240,.4); background:rgba(76,201,240,.08)}
-.log-tag.queen{color:#c792ea; border:1px solid rgba(199,146,234,.4); background:rgba(199,146,234,.08)}
-.log-tag.worker{color:var(--success); border:1px solid rgba(61,220,151,.4); background:rgba(61,220,151,.08)}
-.log-tag.warn{color:var(--warn); border:1px solid rgba(255,107,107,.4); background:rgba(255,107,107,.08)}
-.log-body{flex:1; color:var(--text); line-height:1.5}
-
-/* 滚动条：细、半透明、贴合暗色主题 */
-::-webkit-scrollbar{width:8px; height:8px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.16); border-radius:4px}
-::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.28)}
-::-webkit-scrollbar-corner{background:transparent}
-*{scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.16) transparent}
-
-.toolbar{display:flex; gap:10px; margin:10px 0 12px}
-.btn{border:1px solid rgba(76,201,240,0.5); color:var(--accent); background:rgba(76,201,240,0.08);
-  border-radius:10px; padding:8px 13px; font-size:13px; cursor:pointer; transition:.15s}
-.btn:hover{background:rgba(76,201,240,0.18)}
-.btn.ghost{border-color:var(--card-border); color:var(--muted); background:transparent}
-.btn.ghost:hover{color:var(--text); border-color:var(--muted)}
-
-/* 设置面板（模态） */
-.theme-row{display:flex; gap:10px; flex-wrap:wrap}
-.theme-btn{display:flex; align-items:center; gap:8px; cursor:pointer; border:1px solid var(--card-border);
-  border-radius:10px; padding:8px 13px; font-size:13px; color:var(--text); background:rgba(255,255,255,0.03);
-  transition:.15s}
-.theme-btn:hover{border-color:var(--muted); background:rgba(255,255,255,0.07)}
-.theme-btn.active{border-color:var(--accent); background:rgba(76,201,240,0.12); box-shadow:0 0 0 1px var(--accent) inset}
-.theme-btn .sw{width:15px; height:15px; border-radius:50%; border:1px solid rgba(255,255,255,0.35); box-shadow:0 0 0 1px rgba(0,0,0,0.3) inset}
-.field textarea{background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:8px;
-  padding:8px 10px; color:var(--text); font-size:13px; outline:none; resize:vertical; min-height:84px; font-family:inherit; line-height:1.5}
-.field textarea:focus{border-color:rgba(76,201,240,.5)}
-.modal{display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100;
-  align-items:center; justify-content:center; padding:24px}
-.modal.show{display:flex}
-.modal-card{width:680px; max-width:92vw; max-height:90vh; overflow:auto; background:var(--card);
-  border:1px solid var(--card-border); border-radius:16px; padding:22px 24px}
-.modal-card h2{margin:0 0 18px; font-size:17px}
-.modal-card h3{font-size:14px; margin:18px 0 10px; color:var(--accent)}
-.settings-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px}
-.field{display:flex; flex-direction:column; gap:6px}
-.field.full{grid-column:1/-1}
-.field label{font-size:12px; color:var(--muted)}
-.field input{background:rgba(255,255,255,0.05); border:1px solid var(--card-border); border-radius:8px;
-  padding:8px 10px; color:var(--text); font-size:13px; outline:none}
-.field input:focus{border-color:rgba(76,201,240,.5)}
-.field input.code, .field textarea.code{font-family:ui-monospace,Menlo,Consolas,monospace}
-.modal-card h3{margin:22px 0 10px; padding-top:16px; border-top:1px solid var(--card-border); font-size:14px; color:var(--accent)}
-.modal-card h3:first-of-type{margin-top:0; padding-top:0; border-top:none}
-.modal-actions{display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:22px; padding-top:16px; border-top:1px solid var(--card-border)}
-.verify-hint{flex:1; font-size:12px; color:var(--muted); line-height:1.5; text-align:left;
-  word-break:break-word; max-height:40px; overflow:auto}
-.verify-hint.ok{color:var(--success)}
-.verify-hint.bad{color:var(--warn)}
-
-/* 弹窗关闭按钮：全局固定右上角 */
-.modal-close{width:28px; height:28px; display:flex; align-items:center; justify-content:center;
-  border-radius:8px; border:1px solid transparent; background:transparent; color:var(--muted);
-  font-size:20px; line-height:1; cursor:pointer}
-.modal-close:hover{background:var(--surface); color:var(--text); border-color:var(--card-border)}
-.modal-close.global{position:fixed; top:18px; right:22px; z-index:110;
-  background:rgba(17,25,40,0.55); border-color:var(--card-border); backdrop-filter:blur(4px)}
-
-/* 赞助按钮（右上角） */
-.sponsor{display:flex; align-items:center; gap:5px; color:var(--accent)}
-.sponsor:hover{color:#ff6b9d; border-color:rgba(255,107,157,.5)}
-
-/* 赞助二维码弹窗 */
-.sponsor-modal{display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100;
-  align-items:center; justify-content:center; padding:24px}
-.sponsor-modal.show{display:flex}
-.sponsor-card{width:420px; max-width:92vw; background:var(--card); border:1px solid var(--card-border);
-  border-radius:16px; padding:22px 24px; text-align:center; position:relative}
-.sponsor-card h2{margin:0 0 8px; font-size:17px}
-.sponsor-card .qr-grid{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px}
-.sponsor-card .qr-item{display:flex; flex-direction:column; align-items:center; gap:6px}
-.sponsor-card .qr-item img{width:100%; border-radius:10px; border:1px solid var(--card-border)}
-.sponsor-card .qr-item span{font-size:12px; color:var(--muted)}
-
-/* 图片上传按钮里的 SVG 图标 */
-#image-upload-btn svg{width:16px; height:16px; pointer-events:none}
-
-/* thinking 提示 */
-.thinking-hint{font-size:12px; color:var(--muted); opacity:0; min-height:18px;
-  margin:0 4px 6px; transition:opacity .2s; display:flex; align-items:center; gap:8px}
-.thinking-hint.show{opacity:.85}
-.thinking-hint .dot{width:6px; height:6px; border-radius:50%; background:var(--accent);
-  animation:pulse 1s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
-
-/* 更新提示条 */
-.update-banner{position:fixed; top:14px; left:50%; transform:translateX(-50%);
-  z-index:50; display:none; align-items:center; gap:12px; max-width:90vw;
-  padding:10px 14px; border-radius:12px;
-  background:rgba(17,25,40,0.92); border:1px solid var(--accent);
-  color:var(--text); font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.4)}
-.update-banner .ub-text{display:flex; align-items:center; gap:8px}
-.update-banner .ub-dot{width:7px; height:7px; border-radius:50%; background:var(--accent)}
-.update-banner button{background:transparent; border:1px solid var(--card-border);
-  color:var(--text); border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer}
-.update-banner button:hover{border-color:var(--accent); color:var(--accent)}
-.update-banner .ub-close{color:var(--muted)}
-
-/* 聊天输入区：技能选择 + 输入框 + 图片 */
-.chat-input-row{align-items:flex-end}
-.skill-select{background:rgba(255,255,255,0.05); border:1px solid var(--card-border);
-  border-radius:10px; padding:10px 12px; color:var(--text); font-size:13px; outline:none;
-  max-width:140px; cursor:pointer}
-.skill-select:focus{border-color:rgba(76,201,240,.5)}
-.chat-input-wrap{flex:1; display:flex; flex-direction:column; gap:6px; position:relative}
-.image-preview-row{display:flex; gap:8px; flex-wrap:wrap; padding:0 2px}
-.image-preview{position:relative; width:64px; height:64px; border-radius:8px;
-  overflow:hidden; border:1px solid var(--card-border); background:var(--surface)}
-.image-preview img{width:100%; height:100%; object-fit:cover}
-.image-preview .rm{position:absolute; top:2px; right:2px; width:18px; height:18px;
-  background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%;
-  font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center}
-.input-actions{position:absolute; right:8px; bottom:8px; display:flex; gap:6px}
-.input-actions button{background:transparent; border:1px solid var(--card-border); color:var(--muted);
-  border-radius:6px; width:26px; height:26px; font-size:14px; cursor:pointer; display:flex;
-  align-items:center; justify-content:center; padding:0}
-.input-actions button:hover{color:var(--accent); border-color:var(--accent)}
-.input-actions button:disabled{color:var(--muted); border-color:var(--card-border); cursor:not-allowed; opacity:.4}
-.input-actions button:disabled:hover{color:var(--muted); border-color:var(--card-border)}
-
-/* Skills 目录浏览按钮 */
-.browse-row{display:flex; gap:8px; align-items:center}
-.browse-row input{flex:1}
-.browse-row button{flex-shrink:0}
-
-/* Skills 展示页 */
-.skills-modal .skill-list{display:flex; flex-direction:column; gap:10px; max-height:55vh; overflow:auto; padding-right:4px}
-.skills-modal .skill-item{padding:12px; border-radius:10px; border:1px solid var(--card-border);
-  background:rgba(255,255,255,0.03)}
-.skills-modal .skill-name{font-weight:600; font-size:14px; margin-bottom:4px; display:flex; align-items:center; gap:8px}
-.skills-modal .skill-tag{font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid var(--card-border); color:var(--muted)}
-.skills-modal .skill-meta{font-size:12px; color:var(--muted); margin-bottom:4px}
-.skills-modal .skill-desc{font-size:13px; color:var(--text); line-height:1.5}
-.skills-modal .empty{text-align:center; padding:30px 10px}
-""")
+app.css(load_css())
 
 # ------------------------------------------------------------------ 运行时状态
 STATE = {"task": "尚未下达任务"}
 SUBTASKS = []          # [{id, title, worker, status, msg}]
 WORKERS = []           # [{id, name, status, task, note}]
-CHATS = []             # [(role, text)]
+CHATS = []             # [{"role": "user"|"queen", "text": str, "reasoning": str}]
+_STREAM_BUF = {"active": False, "text": "", "reasoning": ""}
+_LOG_DOM_COUNT = 0     # 已追加到 DOM 的日志条数（避免整页刷新打断选中）
 LOGS = []              # [(time, tag, text)]
 CHAT_DRAFT = {"v": ""}
 SELECTED_SKILL = ""    # 聊天框左侧选中的 skill
@@ -384,11 +158,13 @@ def _flush():
         _timer["t"] = None
     try:
         if "chat" in parts:
-            app.update("#chat-msgs", render_chat())
-            app.run_js("var b=document.querySelector('#chat-msgs'); if(b)b.scrollTop=b.scrollHeight;")
+            if _STREAM_BUF.get("active"):
+                pass  # 流式进行中由 JS 增量更新，避免 innerHTML 全量替换
+            else:
+                app.update("#chat-msgs", ui_render.render_chat(CHATS))
+                app.run_js("scrollChat();")
         if "log" in parts:
-            app.update("#log", render_log())
-            app.run_js("var l=document.querySelector('#log'); if(l)l.scrollTop=l.scrollHeight;")
+            _append_logs_to_dom()
         if "subtasks" in parts:
             app.update("#subtasks", _subtasks_html())
         if "workers" in parts:
@@ -399,6 +175,27 @@ def _flush():
             _render_skills_list()
     except Exception as e:
         bridge.trace("UI", "error", f"刷新失败：{e}")
+
+
+def _append_logs_to_dom():
+    global _LOG_DOM_COUNT
+    if _LOG_DOM_COUNT >= len(LOGS):
+        return
+    chunk = LOGS[_LOG_DOM_COUNT:]
+    _LOG_DOM_COUNT = len(LOGS)
+    html = "".join(
+        f'<div class="log-line">'
+        f'<div class="log-time">{_esc(t)}</div>'
+        f'<div class="log-tag {_esc(tag)}">{_esc(tag.upper())}</div>'
+        f'<div class="log-body">{_esc(text)}</div>'
+        f'</div>'
+        for t, tag, text in chunk
+    )
+    app.run_js(
+        f"(function(){{var l=document.querySelector('#log'); if(!l)return;"
+        f"l.insertAdjacentHTML('beforeend',{json.dumps(html)});"
+        f"l.scrollTop=l.scrollHeight;}})();"
+    )
 
 
 def _set_pill(cls, text):
@@ -448,18 +245,46 @@ def _vision_reason():
 
 def on_core_event(kind, p):
     """唯一的事件入口。所有 UI 变化都从这里发生，便于回溯。"""
-    global SKILLS_CACHE
+    global SKILLS_CACHE, _LOG_DOM_COUNT
     try:
         if kind == "chat":
             role = p.get("role") if p.get("role") in ("user", "queen") else "queen"
-            CHATS.append((role, p.get("text", "")))
+            CHATS.append({
+                "role": role,
+                "text": p.get("text", ""),
+                "reasoning": p.get("reasoning", "") or "",
+            })
             if role == "user":
                 STATE["task"] = p.get("text", "")[:200]
                 _mark("task")
             _mark("chat")
 
+        elif kind == "stream":
+            phase = p.get("phase", "")
+            if phase == "start":
+                _STREAM_BUF["active"] = True
+                _STREAM_BUF["text"] = ""
+                _STREAM_BUF["reasoning"] = ""
+                app.run_js("startStreamBubble();")
+            elif phase == "reasoning_start":
+                app.run_js("ensureStreamThink();")
+            elif phase == "reasoning":
+                chunk = p.get("text", "")
+                _STREAM_BUF["reasoning"] += chunk
+                app.run_js(f"appendStreamThink({json.dumps(chunk)});")
+            elif phase == "reasoning_end":
+                app.run_js("closeStreamThink();")
+            elif phase == "content":
+                chunk = p.get("text", "")
+                _STREAM_BUF["text"] += chunk
+                app.run_js(f"appendStreamText({json.dumps(chunk)});")
+            elif phase == "end":
+                _STREAM_BUF["active"] = False
+                app.run_js("finalizeStreamBubble();")
+                _mark("chat")
+
         elif kind == "thinking":
-            _set_thinking(p.get("text", ""))
+            pass  # 深度思考改在左侧聊天气泡内展示
 
         elif kind == "skills":
             SKILLS_CACHE = p.get("list", [])
@@ -467,8 +292,6 @@ def on_core_event(kind, p):
 
         elif kind == "log":
             _push_log(p.get("tag", "sys"), p.get("text", ""))
-            if core.busy and p.get("tag") == "queen":
-                _set_thinking(p.get("text", "")[:90])
             _mark("log")
 
         elif kind == "worker":
@@ -476,10 +299,6 @@ def on_core_event(kind, p):
                 "id": p["id"], "name": p.get("name", ""), "status": p.get("status", "run"),
                 "task": p.get("task", ""), "note": p.get("note", ""),
             })
-            if p.get("status") == "run":
-                _set_thinking(f"工蚁 {p.get('name', '')} 执行中：{p.get('task', '')[:60]}")
-            elif p.get("status") in ("ok", "fail"):
-                _set_thinking(f"工蚁 {p.get('name', '')} 已归巢")
             _mark("workers")
 
         elif kind == "subtask":
@@ -487,8 +306,6 @@ def on_core_event(kind, p):
                 "id": p["id"], "title": p.get("title", ""), "worker": p.get("worker", ""),
                 "status": p.get("status", "run"), "msg": p.get("msg", ""),
             })
-            if p.get("status") == "run":
-                _set_thinking(f"派发子任务：{p.get('title', '')[:70]}")
             _mark("subtasks")
 
         elif kind == "status":
@@ -501,6 +318,7 @@ def on_core_event(kind, p):
                 # 核心刚起来，把 UI 里的设置和自定义 Agent 灌进去（早于第一次 LLM 调用）
                 core.apply_settings(SETTINGS)
                 core.apply_custom_agent(APPEARANCE.get("custom_agent", ""))
+                core.set_ui_settings(SETTINGS)
                 _mark("log")
             elif st == "error":
                 _set_pill("fail", "核心异常")
@@ -529,11 +347,15 @@ def on_core_event(kind, p):
 
         elif kind == "turn":
             if p.get("state") == "start":
+                SUBTASKS.clear()
+                WORKERS.clear()
                 _set_pill("thinking", "thinking")
-                _set_thinking("蚁后正在思考…")
+                app.run_js("setStopEnabled(true);")
+                _mark("subtasks", "workers")
             else:
                 _set_pill("ok", "就绪")
                 _set_thinking("")
+                app.run_js("setStopEnabled(false);")
                 _flush()  # 收尾强制刷一次，避免最后一批事件卡在 debounce 里
 
         elif kind == "skill_list":
@@ -544,16 +366,18 @@ def on_core_event(kind, p):
 
 
 core.subscribe(on_core_event)
+core.set_ui_settings(SETTINGS)
 
 # 启动即让 UI 配置压过宿主环境变量（AntNest 顶层就读掉配置，必须在 import 前）
 _pushed = bridge.push_env(SETTINGS)
 
 # 开场：核心懒加载（首次发送时才 import，避免开窗卡在网络校验上）
-CHATS.append((
-    "queen",
-    "蚁后待命。把任务交给我，我会拆成子任务、派发工蚁隔离执行。\n"
-    "首次发送会载入核心并校验模型，需要几秒。",
-))
+CHATS.append({
+    "role": "queen",
+    "text": "蚁后待命。把任务交给我，我会拆成子任务、派发工蚁隔离执行。\n"
+            "首次发送会载入核心并校验模型，需要几秒。",
+    "reasoning": "",
+})
 LOGS.append((time.strftime("%H:%M:%S"), "sys", "UI 已启动，核心将在首次发送任务时载入"))
 if _pushed:
     LOGS.append((time.strftime("%H:%M:%S"), "sys",
@@ -561,6 +385,7 @@ if _pushed:
 if not (SETTINGS.get("llm_api_key") or "").strip():
     LOGS.append((time.strftime("%H:%M:%S"), "warn",
                  "尚未配置 API Key，请在「⚙ 设置」中填写后点「保存并校验」"))
+_LOG_DOM_COUNT = len(LOGS)
 
 
 # 启动后静默检查更新（仅提示，不自动下载/执行）
@@ -569,27 +394,15 @@ threading.Thread(target=check_update, daemon=True).start()
 
 # ------------------------------------------------------------------ 渲染辅助
 def _esc(s):
-    return _h.escape(str(s))
+    return ui_render.esc(s)
 
 
 def render_chat():
-    return "\n".join(
-        f'<div class="bubble {role}">{_esc(text)}</div>'
-        for role, text in CHATS
-    )
+    return ui_render.render_chat(CHATS)
 
 
 def render_log():
-    lines = []
-    for time, tag, text in LOGS:
-        lines.append(
-            f'<div class="log-line">'
-            f'<div class="log-time">{time}</div>'
-            f'<div class="log-tag {tag}">{tag.upper()}</div>'
-            f'<div class="log-body">{_esc(text)}</div>'
-            f'</div>'
-        )
-    return "\n".join(lines)
+    return ui_render.render_log(LOGS)
 
 
 _STATUS_TEXT = {"ok": "完成", "run": "执行中", "fail": "打回", "idle": "待命"}
@@ -646,29 +459,62 @@ def _workers():
     return ui.div(id="workers")[ui.raw(_workers_html())]
 
 
-def _field(key, label, value, full=False, code=False, browse=None):
+def _field(key, label, value, full=False, code=False, browse=None, hint="", input_type="text"):
     cls = "field-input" + (" code" if code else "")
-    inner = [ui.input(cls=cls, id=f"set-{key}", value=value, oninput=f"set_{key}")]
+    type_attr = f' type="{input_type}"' if input_type != "text" else ""
+    inp = ui.raw(
+        f'<input class="{cls}" id="set-{key}" value="{_h.escape(str(value))}"{type_attr}>'
+    )
+    label_html = f'<div class="field-label">{_h.escape(label)}</div>'
+    hint_html = f'<div class="field-hint">{_h.escape(hint)}</div>' if hint else ""
     if browse:
-        inner.append(
-            ui.raw(f'<button type="button" class="btn ghost" onclick="{browse}">浏览…</button>')
-        )
         return ui.div(cls=f"field {'full' if full else ''}")[
-            ui.label()[label],
-            ui.div(cls="browse-row")[inner[0], inner[1]],
+            ui.raw(label_html + hint_html),
+            ui.div(cls="browse-row")[
+                inp,
+                ui.raw(f'<button type="button" class="btn ghost" onclick="{browse}">浏览…</button>'),
+            ],
         ]
     return ui.div(cls=f"field {'full' if full else ''}")[
-        ui.label()[label],
-        inner[0],
+        ui.raw(label_html + hint_html),
+        inp,
     ]
 
 
-def _field_area(key, label, value, full=True, code=False):
+def _field_area(key, label, value, full=True, code=False, hint=""):
     cls = "field-input" + (" code" if code else "")
+    label_html = f'<div class="field-label">{_h.escape(label)}</div>'
+    hint_html = f'<div class="field-hint">{_h.escape(hint)}</div>' if hint else ""
     return ui.div(cls=f"field {'full' if full else ''}")[
-        ui.label()[label],
-        ui.el("textarea", cls=cls, id=f"set-{key}", oninput=f"set_{key}")[value],
+        ui.raw(label_html + hint_html),
+        ui.raw(
+            f'<textarea class="{cls}" id="set-{key}">{_h.escape(str(value))}</textarea>'
+        ),
     ]
+
+
+def _toggle(key, label, value, hint=""):
+    on = str(value).lower() in ("true", "1", "yes")
+    hint_html = f'<div class="field-hint">{_h.escape(hint)}</div>' if hint else ""
+    return ui.raw(
+        f'<div class="field full">'
+        f'<div class="toggle-row">'
+        f'<div class="toggle-meta"><div class="field-label">{_h.escape(label)}</div>{hint_html}</div>'
+        f'<label class="toggle">'
+        f'<input type="checkbox" id="set-{key}-cb" {"checked" if on else ""} onchange="syncToggle(\'{key}\')">'
+        f'<span class="toggle-ui"></span></label></div>'
+        f'<input type="hidden" id="set-{key}" value="{"true" if on else "false"}">'
+        f'</div>'
+    )
+
+
+def _settings_section(title, *children):
+    inner = "".join(c.render() if hasattr(c, "render") else str(c) for c in children)
+    return ui.raw(
+        f'<section class="settings-section">'
+        f'<div class="section-head"><span class="dot"></span>{_h.escape(title)}</div>'
+        f'{inner}</section>'
+    )
 
 
 _THEME_OPTS = [
@@ -699,15 +545,20 @@ def _skill_options():
 
 
 def _skills_modal():
-    return ui.div(cls="modal skills-modal", id="skills-modal")[
-        ui.div(cls="modal-card")[
+    return ui.div(
+        cls="modal skills-modal",
+        id="skills-modal",
+        onclick="if(event.target===this) closeSkillsModal()",
+    )[
+        ui.raw('<button type="button" class="modal-close global" onclick="closeSkillsModal()" title="关闭">×</button>'),
+        ui.div(cls="modal-card", onclick="event.stopPropagation()")[
             ui.h2()["已安装的 Skills"],
             ui.div(id="skills-list")[ui.raw(_skills_list_html())],
             ui.div(cls="modal-actions")[
                 ui.raw('<button class="btn ghost" onclick="refreshSkills()">刷新</button>'),
                 ui.raw('<button class="btn" onclick="closeSkillsModal()">关闭</button>'),
             ],
-        ]
+        ],
     ]
 
 
@@ -743,47 +594,67 @@ def _render_skills_list():
 
 
 def _settings_modal():
-    return ui.div(cls="modal", id="settings-modal", onclick="if(event.target===this) closeSettings()")[
-        ui.raw('<button type="button" class="modal-close global" onclick="closeSettings()" title="关闭设置">×</button>'),
-        ui.div(cls="modal-card")[
-            ui.h2()["设置"],
-            ui.h3()["LLM"],
-            ui.div(cls="settings-grid")[
-                _field("llm_base_url", "API Base URL", SETTINGS["llm_base_url"], code=True),
-                _field("llm_model", "模型", SETTINGS["llm_model"], code=True),
-                _field("llm_api_key", "API Key", SETTINGS["llm_api_key"], full=True, code=True),
-            ],
-            ui.h3()["AntNest 参数"],
-            ui.div(cls="settings-grid")[
-                _field("max_depth", "最大递归深度", SETTINGS["max_depth"], code=True),
-                _field("max_clones", "每层并发数 (JSON)", SETTINGS["max_clones"], full=True, code=True),
-            ],
-            ui.h3()["集成"],
-            ui.div(cls="settings-grid")[
-                _field("mcp_enabled", "MCP 启用 (true/false)", SETTINGS["mcp_enabled"]),
-                _field("mcp_config", "MCP 配置文件", SETTINGS["mcp_config"], code=True),
-                _field("skills_enabled", "Skills 启用 (true/false)", SETTINGS["skills_enabled"]),
-                _field("skills_dir", "Skills 目录", SETTINGS["skills_dir"], code=True, browse="onBrowseSkillsDir()"),
-            ],
-            ui.h3()["外观"],
-            ui.div(cls="settings-grid")[
-                ui.div(cls="field full")[
-                    ui.label()["主题（点击即时预览）"],
-                    _theme_buttons(),
+    llm = ui.div(cls="settings-grid")[
+        _field("llm_base_url", "API Base URL", SETTINGS["llm_base_url"], code=True,
+               hint="OpenAI 兼容接口地址"),
+        _field("llm_model", "模型名称", SETTINGS["llm_model"], code=True,
+               hint="如 deepseek-v4-flash"),
+        _field("llm_api_key", "API Key", SETTINGS["llm_api_key"], full=True, code=True,
+               hint="仅保存在本机 config.json", input_type="password"),
+    ]
+    agent = ui.div(cls="settings-grid")[
+        _field("max_depth", "最大递归深度", SETTINGS["max_depth"], code=True,
+               hint="工蚁嵌套层数上限，推荐 2"),
+        _field("max_clones", "每层并发数", SETTINGS["max_clones"], full=True, code=True,
+               hint='JSON 格式，如 {"0":10,"1":5,"2":3}'),
+    ]
+    integrate = ui.div(cls="settings-grid")[
+        _toggle("mcp_enabled", "启用 MCP", SETTINGS["mcp_enabled"],
+                hint="启用后加载 mcp.json 中的 MCP 服务器，蚁后可调用 mcp_call / mcp_list_tools"),
+        _field("mcp_config", "MCP 配置文件", SETTINGS["mcp_config"], code=True,
+               hint="相对路径或绝对路径"),
+        _toggle("skills_enabled", "启用 Skills", SETTINGS["skills_enabled"],
+                hint="选中 Skill 时将 SKILL.md 正文注入本轮上下文"),
+        _field("skills_dir", "Skills 目录", SETTINGS["skills_dir"], full=True, code=True,
+               hint="包含 SKILL.md 的文件夹", browse="onBrowseSkillsDir()"),
+    ]
+    appear = ui.div(cls="settings-grid")[
+        ui.div(cls="field full")[
+            ui.raw('<div class="field-label">主题</div><div class="field-hint">点击即时预览</div>'),
+            _theme_buttons(),
+        ],
+        _field("bg_image", "背景图片", APPEARANCE["bg_image"], full=True, code=True,
+               hint="URL 或本地路径，留空使用主题渐变"),
+    ]
+    custom = _field_area(
+        "custom_agent", "自定义 Agent 指令", APPEARANCE["custom_agent"], code=True,
+        hint="追加到 system prompt 尾部，优先级最高",
+    )
+    return ui.div(cls="modal settings-modal", id="settings-modal", onclick="if(event.target===this) closeSettings()")[
+        ui.div(cls="modal-card settings-card", onclick="event.stopPropagation()")[
+            ui.div(cls="settings-header")[
+                ui.div()[
+                    ui.h2()["设置"],
+                    ui.raw('<p class="settings-sub">配置模型连接、蚁巢参数、集成与外观</p>'),
                 ],
-                _field("bg_image", "背景图片 URL / 本地路径（留空=主题渐变）", APPEARANCE["bg_image"], full=True, code=True),
+                ui.raw('<button type="button" class="modal-close" onclick="closeSettings()" title="关闭">×</button>'),
             ],
-            ui.h3()["自定义 Agent"],
-            _field_area("custom_agent", "工蚁系统提示词 / 配置（自由文本或 JSON）", APPEARANCE["custom_agent"], code=True),
-            ui.raw(f'<input type="hidden" id="set-theme" value="{APPEARANCE["theme"]}">'),
-            ui.div(cls="modal-actions")[
+            ui.div(cls="settings-body")[
+                _settings_section("LLM 连接", llm),
+                _settings_section("蚁巢参数", agent),
+                _settings_section("集成", integrate),
+                _settings_section("外观", appear),
+                _settings_section("自定义 Agent", custom),
+                ui.raw(f'<input type="hidden" id="set-theme" value="{APPEARANCE["theme"]}">'),
+            ],
+            ui.div(cls="settings-footer")[
                 ui.raw('<span class="verify-hint" id="verify-hint"></span>'),
-                ui.raw('<button class="btn ghost" onclick="openSkillsModal()">管理 Skills</button>'),
-                ui.raw('<button class="btn ghost" onclick="onTestApi()">测试连接</button>'),
-                ui.raw('<button class="btn ghost" onclick="closeSettings()">取消</button>'),
-                ui.raw('<button class="btn" onclick="onSaveSettings()">保存并校验</button>'),
+                ui.raw('<button type="button" class="btn ghost" onclick="openSkillsModal()">管理 Skills</button>'),
+                ui.raw('<button type="button" class="btn ghost" onclick="onTestApi()">测试连接</button>'),
+                ui.raw('<button type="button" class="btn ghost" onclick="closeSettings()">取消</button>'),
+                ui.raw('<button type="button" class="btn" onclick="onSaveSettings()">保存并校验</button>'),
             ],
-        ]
+        ],
     ]
 
 
@@ -810,6 +681,17 @@ def on_image_attach(data):
         SELECTED_IMAGE = None
 
 
+@app.route("stop")
+def on_stop(data):
+    ok, err = core.stop()
+    if ok:
+        _push_log("warn", "正在强行停止…")
+        _mark("log")
+    elif err == "idle":
+        _push_log("sys", "当前没有进行中的任务")
+        _mark("log")
+
+
 @app.route("send")
 def on_send(data):
     global SELECTED_IMAGE
@@ -831,11 +713,7 @@ def on_send(data):
     CHAT_DRAFT["v"] = ""
     SELECTED_IMAGE = None
     app.run_js("clearInputAndImage();")
-    # 附加 skill 前缀
-    final_msg = msg
-    if skill:
-        final_msg = f"[Skill: {skill}] {msg}"
-    ok, err = core.send(final_msg, image_b64=image_b64, image_mime=image_mime)
+    ok, err = core.send(msg, image_b64=image_b64, image_mime=image_mime, skill=skill or "")
     if not ok:
         bridge.trace("UI", "warn", f"core.send 未发送：{err}")
 
@@ -853,10 +731,11 @@ def on_dispatch(data):
         core.load_error = ""
         _push_log("sys", "正在重连核心…")
         _mark("log")
-        ok, err = core.ensure_loaded()
+        ok, err = core.ensure_loaded(SETTINGS)
         if ok:
             core.apply_settings(SETTINGS)
             core.apply_custom_agent(APPEARANCE.get("custom_agent", ""))
+            core.set_ui_settings(SETTINGS)
         _flush()
 
     threading.Thread(target=_reload, daemon=True).start()
@@ -873,7 +752,11 @@ def on_reset(data):
     SUBTASKS.clear()
     WORKERS.clear()
     CHATS.clear()
-    CHATS.append(("queen", "上下文已清空，蚁后重新待命。"))
+    CHATS.append({
+        "role": "queen",
+        "text": "上下文已清空，蚁后重新待命。",
+        "reasoning": "",
+    })
     STATE["task"] = "尚未下达任务"
     _mark("chat", "log", "subtasks", "workers", "task")
     _flush()
@@ -1038,6 +921,8 @@ def on_save_settings(data):
     if core.ready:
         core.apply_settings(SETTINGS)
         core.apply_custom_agent(APPEARANCE.get("custom_agent", ""))
+    core.set_ui_settings(SETTINGS)
+    if core.ready:
         _push_log("sys", "已热应用到运行中的核心（下一轮生效）")
     _mark("log")
     _flush()
@@ -1051,265 +936,7 @@ _init_theme = APPEARANCE["theme"]
 _init_bg = APPEARANCE["bg_image"]
 app.body(
     # 全局：背景图应用函数 + 启动时套用已存主题/背景 + 设置面板本地显隐
-    ui.raw('''
-<script>
-function applyBg(i){
-  if(i){
-    document.body.style.backgroundImage="linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)),url(\\""+i+"\\")";
-    document.body.style.backgroundSize="cover";
-    document.body.style.backgroundPosition="center";
-    document.body.style.backgroundAttachment="fixed";
-  }else{
-    document.body.style.backgroundImage="";
-    document.body.style.backgroundSize="";
-    document.body.style.backgroundPosition="";
-    document.body.style.backgroundAttachment="";
-  }
-}
-function phwCall(route, payload){
-  console.log("[phwCall]", route, payload);
-  if(window.PHW && window.PHW.route){ window.PHW.route(route, payload||{}); return; }
-  console.warn("[phwCall] window.PHW 未就绪，回退 fetch（webview 模式下会失败）");
-  fetch("/api/route",{method:"POST",headers:{"Content-Type":"application/json"},
-       body:JSON.stringify({route:route,data:payload||{}})});
-}
-var selectedSkill="";
-var selectedImage=null; // {b64, mime}
-function onSkillChange(v){
-  selectedSkill=v;
-  phwCall("skill_change",{value:v});
-}
-function setSkillSelect(v){
-  selectedSkill=v;
-  var s=document.getElementById("skill-select");
-  if(s) s.value=v;
-}
-function onImageFile(input){
-  if(!canAttachImage()) return;
-  var f=input.files && input.files[0];
-  if(!f) return;
-  attachImage(f);
-  input.value="";
-}
-function canAttachImage(){
-  var b=document.getElementById("image-upload-btn");
-  return !!b && !b.disabled;
-}
-function updateImageBtn(enabled, reason){
-  var b=document.getElementById("image-upload-btn");
-  if(!b) return;
-  b.disabled=!enabled;
-  b.title = enabled ? "上传图片" : (reason || "当前模型不支持图片识别");
-  if(!enabled && selectedImage){ removeImage(); }
-}
-function attachImage(file){
-  if(!file.type.startsWith("image/")){
-    alert("请选择图片文件"); return;
-  }
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var data=e.target.result; // data:image/png;base64,....
-    var idx=data.indexOf(",");
-    var mime=data.slice(5, idx);
-    var b64=data.slice(idx+1);
-    selectedImage={b64:b64, mime:mime};
-    phwCall("image_attach",{b64:b64, mime:mime});
-    renderImagePreview();
-  };
-  reader.readAsDataURL(file);
-}
-function renderImagePreview(){
-  var row=document.getElementById("image-preview-row");
-  if(!row) return;
-  if(!selectedImage){ row.innerHTML=""; return; }
-  row.innerHTML='<div class="image-preview"><img src="data:'+selectedImage.mime+';base64,'+selectedImage.b64+'"><button class="rm" onclick="removeImage()">×</button></div>';
-}
-function removeImage(){
-  selectedImage=null;
-  phwCall("image_attach",{b64:"", mime:""});
-  renderImagePreview();
-}
-function clearInputAndImage(){
-  var i=document.getElementById("chat-input");
-  if(i) i.value="";
-  selectedImage=null;
-  renderImagePreview();
-}
-function onChatPaste(e){
-  if(!canAttachImage()) return;
-  var cd=(e.clipboardData||e.originalEvent.clipboardData);
-  if(!cd) return;
-  var handled=false;
-  if(cd.items && cd.items.length){
-    for(var k=0;k<cd.items.length;k++){
-      if(cd.items[k].type.indexOf("image")!==-1){
-        e.preventDefault();
-        attachImage(cd.items[k].getAsFile());
-        handled=true; break;
-      }
-    }
-  }
-  if(!handled && cd.files && cd.files.length){
-    for(var k=0;k<cd.files.length;k++){
-      if(cd.files[k].type.indexOf("image")!==-1){
-        e.preventDefault();
-        attachImage(cd.files[k]);
-        handled=true; break;
-      }
-    }
-  }
-}
-document.addEventListener("paste", function(e){
-  if(e.target && e.target.id==="chat-input") onChatPaste(e);
-});
-var _updateUrl="";
-function showUpdateBanner(tag, url, cur){
-  _updateUrl=url||"";
-  var b=document.getElementById("update-banner");
-  if(!b) return;
-  var t=document.getElementById("update-text");
-  if(t) t.textContent="发现新版本 v"+tag+"（当前 v"+cur+"）";
-  b.style.display="flex";
-}
-function hideUpdateBanner(){
-  var b=document.getElementById("update-banner");
-  if(b) b.style.display="none";
-}
-function openRelease(){
-  if(_updateUrl) phwCall("open_release",{url:_updateUrl});
-}
-function onSend(){
-  var i=document.getElementById("chat-input");
-  if(!i){ console.warn("[onSend] 找不到 #chat-input"); return; }
-  var v=(i.value||"").trim();
-  console.log("[onSend] value=", v, " skill=", selectedSkill, " image=", !!selectedImage);
-  if(!v && !selectedImage){ console.log("[onSend] 空消息，忽略"); return; }
-  i.value="";
-  var payload={value:v, skill:selectedSkill};
-  if(selectedImage && canAttachImage()){ payload.image_b64=selectedImage.b64; payload.image_mime=selectedImage.mime; }
-  selectedImage=null;
-  renderImagePreview();
-  phwCall("send",payload);
-}
-document.addEventListener("keydown",function(e){
-  // 输入法合成中（拼音确认候选）不要拦截 Enter，交给 IME 上屏；否则会发出半截拼音
-  if(e.isComposing || e.keyCode === 229) return;
-  if(e.key==="Enter" && !e.shiftKey && document.activeElement &&
-     document.activeElement.id==="chat-input"){ e.preventDefault(); onSend(); }
-});
-// 针对「输入法检测不到输入框」：pywebview/WebView2 的 WinForms 宿主有时不把焦点交给
-// WebView2 控件，导致 IME 无法在该 input 上激活（inline 拼音都不出现）。这里在 webview 就绪后、
-// 以及点击聊天输入区时，强制把焦点塞进输入框，逼 IME 接管。
-function focusChat(){
-  var i=document.getElementById("chat-input");
-  if(i){ try{ i.focus({preventScroll:true}); }catch(_){ i.focus(); } }
-}
-if(window.pywebview && window.pywebview.api){ focusChat(); }
-window.addEventListener("pywebviewready", function(){ focusChat(); });
-document.addEventListener("click", function(e){
-  var t=e.target;
-  // 点击按钮/输入框操作区时不抢焦点，避免 WebView2 上按钮点击被焦点切换吞掉
-  if(t && (t.tagName==="BUTTON" || t.closest("button") || t.closest(".input-actions"))) return;
-  if(t && (t.id==="chat-input" ||
-          (t.closest && t.closest(".chat-input-row")))){ focusChat(); }
-});
-function toggleSettings(){var m=document.querySelector("#settings-modal"); if(m)m.classList.toggle("show");}
-function closeSettings(){var m=document.querySelector("#settings-modal"); if(m)m.classList.remove("show");}
-function openSkillsModal(){
-  var m=document.querySelector("#skills-modal"); if(m)m.classList.add("show");
-  refreshSkills();
-}
-function closeSkillsModal(){var m=document.querySelector("#skills-modal"); if(m)m.classList.remove("show");}
-function toggleSkillsModal(){var m=document.querySelector("#skills-modal"); if(m)m.classList.toggle("show");}
-function escHtml(s){
-  return (s||"").replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
-}
-function openSponsorModal(images){
-  var m=document.getElementById("sponsor-modal");
-  var g=document.getElementById("sponsor-images");
-  if(!m || !g) return;
-  g.innerHTML=(images||[]).map(function(x){
-    return '<div class="qr-item"><img src="data:'+escHtml(x.mime)+';base64,'+escHtml(x.b64)+'" alt="'+escHtml(x.name)+'">'
-         +'<span>'+escHtml(x.name)+'</span></div>';
-  }).join("");
-  m.classList.add("show");
-}
-function closeSponsorModal(){var m=document.getElementById("sponsor-modal"); if(m)m.classList.remove("show");}
-function refreshSkills(){ phwCall("refresh_skills",{}); }
-function setSkillsDir(p){
-  var el=document.getElementById("set-skills_dir");
-  if(el) el.value=p;
-}
-function onBrowseSkillsDir(){
-  phwCall("browse_skills_dir",{});
-}
-function setTheme(key){
-  document.documentElement.setAttribute("data-theme", key);
-  document.querySelectorAll(".theme-btn").forEach(function(b){b.classList.remove("active");});
-  var a=document.querySelector('.theme-btn[value="'+key+'"]');
-  if(a)a.classList.add("active");
-  var h=document.getElementById("set-theme");
-  if(h)h.value=key;
-  var bg=document.getElementById("set-bg_image");
-  applyBg(bg?bg.value:"");
-}
-// 页面就绪后主动刷新 skills 列表：必须等 PHW 桥接就绪，否则 webview 模式下
-// window.PHW 尚未注入，会走失败的 fetch 回退导致刷新静默丢失。
-(function whenReady(){
-  if(window.PHW && window.PHW.route){ refreshSkills(); return; }
-  var tries=0;
-  var check=function(){
-    if(window.PHW && window.PHW.route){ refreshSkills(); return; }
-    if(++tries>=80){ console.warn("[refreshSkills] PHW 超时未就绪"); return; }
-    setTimeout(check, 50);
-  };
-  if(window.addEventListener){ window.addEventListener("pywebviewready", check); }
-  setTimeout(check, 50);
-})();
-
-function collectSettings(){
-  var settings={};
-  ["llm_base_url","llm_model","llm_api_key","max_depth","max_clones",
-   "mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
-    var el=document.getElementById("set-"+k);
-    if(el)settings[k]=el.value;
-  });
-  return settings;
-}
-function refreshSkillOptions(list){
-  var s=document.getElementById("skill-select");
-  if(!s) return;
-  var old=s.value;
-  s.innerHTML='<option value="">不使用 Skill</option>'+
-    (list||[]).map(function(x){return '<option value="'+x.name+'">'+x.name+'</option>';}).join("");
-  s.value=old;
-}
-function setVerifyHint(text, cls){
-  var h=document.getElementById("verify-hint");
-  if(h){h.textContent=text||""; h.className="verify-hint "+(cls||"");}
-}
-function onTestApi(){
-  setVerifyHint("正在校验…","");
-  phwCall("test_api",{settings:collectSettings()});
-}
-function onSaveSettings(){
-  var settings={};
-  var appearance={};
-  ["llm_base_url","llm_model","llm_api_key","max_depth","max_clones","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
-    var el=document.getElementById("set-"+k);
-    if(el)settings[k]=el.value;
-  });
-  ["bg_image","custom_agent"].forEach(function(k){
-    var el=document.getElementById("set-"+k);
-    if(el)appearance[k]=el.value;
-  });
-  var th=document.getElementById("set-theme");
-  if(th)appearance.theme=th.value;
-  phwCall("save_settings",{settings:settings,appearance:appearance});
-  closeSettings();
-}
-</script>
-'''),
+    ui.raw("<script>" + load_js() + "</script>"),
     ui.raw(
         f'<script>var VISION_INITIAL={json.dumps(_vision_enabled())};'
         f'var VISION_REASON={json.dumps(_vision_reason())};'
@@ -1353,7 +980,13 @@ function onSaveSettings(){
         # 左：聊天
         ui.div(cls="chat-col")[
             ui.div(cls="card chat")[
-                ui.h2()["和蚁后对话"],
+                ui.div(cls="chat-head")[
+                    ui.h2()["和蚁后对话"],
+                    ui.raw(
+                        '<button type="button" class="btn stop" id="btn-stop" disabled '
+                        'onclick="phwCall(\'stop\',{})">■ 停止</button>'
+                    ),
+                ],
                 ui.div(cls="chat-msgs", id="chat-msgs")[ui.raw(render_chat())],
                 ui.div(cls="thinking-hint", id="thinking-hint")[
                     ui.raw('<span class="dot"></span><span class="txt"></span>')
@@ -1381,19 +1014,21 @@ function onSaveSettings(){
         ],
         # 右：监控
         ui.div(cls="monitor-col")[
-            ui.div(cls="card")[
+            ui.div(cls="card compact")[
                 ui.h2()["当前任务"],
                 ui.p(cls="muted", id="task-title")[STATE["task"]],
             ],
-            ui.div(cls="card")[
-                ui.h2()["子任务"],
-                _subtasks(),
+            ui.div(cls="monitor-panels")[
+                ui.div(cls="card panel")[
+                    ui.h2()["子任务"],
+                    _subtasks(),
+                ],
+                ui.div(cls="card panel")[
+                    ui.h2()["工蚁"],
+                    _workers(),
+                ],
             ],
-            ui.div(cls="card")[
-                ui.h2()["工蚁"],
-                _workers(),
-            ],
-            ui.div(cls="card")[
+            ui.div(cls="card log-card")[
                 ui.h2()["运行日志"],
                 ui.div(cls="toolbar")[
                     ui.raw('<button class="btn ghost" onclick="phwCall(\'dispatch\')">↻ 重连核心</button>'),
