@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "example": {
+      "command": "python",
+      "args": ["-m", "your_mcp_server"],
+      "env": {}
+    }
+  }
+}
