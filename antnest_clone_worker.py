@@ -26,6 +26,10 @@ def run_if_clone_mode() -> None:
     shell = "powershell" if os.name == "nt" else "bash"
     shell_flag = "-Command" if os.name == "nt" else "-c"
 
+    run_env = os.environ.copy()
+    run_env.setdefault("PYTHONIOENCODING", "utf-8")
+    run_env.setdefault("PYTHONUTF8", "1")
+
     print(f"[工蚁] 开始执行: {clone_command[:100]}...")
 
     cmd_lower = clone_command.lower()
@@ -51,10 +55,12 @@ def run_if_clone_mode() -> None:
             [shell, shell_flag, clone_command],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             errors="replace",
             timeout=clone_timeout,
             shell=False,
             cwd=clone_dir,
+            env=run_env,
         )
         output = {
             "status": "ok" if result.returncode == 0 else "error",

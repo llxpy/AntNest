@@ -133,9 +133,26 @@ function clearInputAndImage(){
   renderImagePreview();
 }
 function onChatPaste(e){
-  if(!canAttachImage()) return;
   var cd=(e.clipboardData||e.originalEvent.clipboardData);
   if(!cd) return;
+  var hasImage=false;
+  if(cd.items && cd.items.length){
+    for(var k=0;k<cd.items.length;k++){
+      if(cd.items[k].type.indexOf("image")!==-1){ hasImage=true; break; }
+    }
+  }
+  if(!hasImage && cd.files && cd.files.length){
+    for(var k=0;k<cd.files.length;k++){
+      if(cd.files[k].type.indexOf("image")!==-1){ hasImage=true; break; }
+    }
+  }
+  if(!hasImage) return;
+  if(!canAttachImage()){
+    var reason=window.VISION_REASON||"当前模型不支持图片或未校验 API";
+    alert("无法粘贴图片："+reason+"\n请在设置中配置 vision 模型并点「保存并校验」。");
+    e.preventDefault();
+    return;
+  }
   var handled=false;
   if(cd.items && cd.items.length){
     for(var k=0;k<cd.items.length;k++){
@@ -157,7 +174,10 @@ function onChatPaste(e){
   }
 }
 document.addEventListener("paste", function(e){
-  if(e.target && e.target.id==="chat-input") onChatPaste(e);
+  var t=e.target;
+  if(!t) return;
+  if(t.id==="chat-input" || (t.closest && (t.closest(".chat-col")||t.closest(".chat-input-row"))))
+    onChatPaste(e);
 });
 var _updateUrl="";
 function showUpdateBanner(tag, url, cur){
@@ -277,12 +297,26 @@ function syncToggle(key){
   if(cb&&hid) hid.value=cb.checked?"true":"false";
 }
 function syncAllToggles(){
-  ["mcp_enabled","skills_enabled"].forEach(syncToggle);
+  ["mcp_enabled","skills_enabled","skip_model_check"].forEach(syncToggle);
+}
+function applyModelRecommendations(patch){
+  if(!patch) return;
+  if(patch.thinking_mode){
+    var t=document.getElementById("set-thinking_mode");
+    if(t) t.value=patch.thinking_mode;
+  }
+  if(patch.skip_model_check){
+    var hid=document.getElementById("set-skip_model_check");
+    var cb=document.getElementById("set-skip_model_check-cb");
+    var on=String(patch.skip_model_check).toLowerCase()==="true";
+    if(hid) hid.value=on?"true":"false";
+    if(cb) cb.checked=on;
+  }
 }
 function collectSettings(){
   syncAllToggles();
   var settings={};
-  ["llm_base_url","llm_model","llm_api_key","max_depth","max_clones",
+  ["llm_base_url","llm_model","llm_api_key","thinking_mode","skip_model_check","max_depth","max_clones",
    "mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
     var el=document.getElementById("set-"+k);
     if(el)settings[k]=el.value;
@@ -301,6 +335,24 @@ function setVerifyHint(text, cls){
   var h=document.getElementById("verify-hint");
   if(h){h.textContent=text||""; h.className="verify-hint "+(cls||"");}
 }
+function onListModels(){
+  setVerifyHint("正在检测模型列表…","");
+  phwCall("list_models",{settings:collectSettings()});
+}
+function openModelsModal(models){
+  var m=document.getElementById("models-modal");
+  if(m) m.classList.add("show");
+}
+function closeModelsModal(){
+  var m=document.getElementById("models-modal");
+  if(m) m.classList.remove("show");
+}
+function pickModel(id){
+  var el=document.getElementById("set-llm_model");
+  if(el) el.value=id;
+  phwCall("pick_model",{value:id});
+  closeModelsModal();
+}
 function onTestApi(){
   setVerifyHint("正在校验…","");
   phwCall("test_api",{settings:collectSettings()});
@@ -309,7 +361,7 @@ function onSaveSettings(){
   syncAllToggles();
   var settings={};
   var appearance={};
-  ["llm_base_url","llm_model","llm_api_key","max_depth","max_clones","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
+  ["llm_base_url","llm_model","llm_api_key","thinking_mode","skip_model_check","max_depth","max_clones","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
     var el=document.getElementById("set-"+k);
     if(el)settings[k]=el.value;
   });

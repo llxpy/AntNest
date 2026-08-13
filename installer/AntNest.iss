@@ -8,7 +8,7 @@
 ; uv builds a venv and installs pywebview on first run (requires internet).
 
 #define MyAppName "AntNest"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "AntNest"
 #define MyAppURL "https://github.com/llxpy/AntNest"
 ; repo root (relative to this .iss, which lives in installer/)

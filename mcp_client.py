@@ -83,7 +83,7 @@ class McpSession:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "AntNest", "version": "1.2.0"},
+                "clientInfo": {"name": "AntNest", "version": "1.2.1"},
             },
         )
         self._notify("notifications/initialized", {})

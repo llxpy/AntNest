@@ -7,6 +7,7 @@ code_tools — 经工蚁执行的代码/文件工具（纯函数：路径、脚�
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 from pathlib import Path
@@ -20,10 +21,14 @@ def resolve_path(path: str, project_dir: str) -> Path:
 
 
 def worker_py_cmd(py_code: str, *, is_windows: bool, python_exe: str) -> str:
-    quoted = json.dumps(py_code, ensure_ascii=False)
+    """把 Python 代码包进 shell -c。Windows PowerShell 不识别 JSON 的 \\\"，需用 base64。"""
     exe = json.dumps(python_exe)
     if is_windows:
-        return f"& {exe} -c {quoted}"
+        payload = base64.b64encode(py_code.encode("utf-8")).decode("ascii")
+        return (
+            f"& {exe} -c \"import base64;exec(base64.b64decode('{payload}').decode('utf-8'))\""
+        )
+    quoted = json.dumps(py_code, ensure_ascii=False)
     return f"{python_exe} -c {quoted}"
 
 

@@ -100,6 +100,7 @@ class AntNestToolsTest(unittest.TestCase):
                 files = {p.name for p in Path(clone_dir).iterdir()}
                 self.assertIn("AntNest.py", files)
                 self.assertIn("antnest_clone_worker.py", files)
+                self.assertIn("api_compat.py", files)
         finally:
             self.an.CLONE_POOL_DIR = orig_pool
             os.environ.pop("AN_DEPTH", None)

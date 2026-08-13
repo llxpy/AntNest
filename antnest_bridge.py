@@ -41,6 +41,8 @@ import time
 import traceback
 from datetime import datetime
 
+from api_compat import apply_recommendations, recommend_model_settings
+
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # 可写路径解析（坑2 修复）：安装版由启动器通过环境变量指到 %LOCALAPPDATA%/AntNest，
 # 未设置时回退脚本同目录（dev 模式）。保持 AntNest 配置形状不变。
@@ -130,6 +132,7 @@ _VISION_KEYWORDS = (
     "vision", "gpt-4o", "gpt-4-turbo", "gpt-4.5", "claude-3",
     "qwen-vl", "gemini-pro-vision", "gemini-1.5", "gemini-2",
     "llava", "internvl", "deepseek-vl", "glm-4v", "yi-vl",
+    "minimax", "abab", "vl-", "-vl",
 )
 
 
@@ -230,6 +233,8 @@ def load_settings():
         "llm_base_url": api.get("base_url", "https://api.deepseek.com/v1"),
         "llm_model": api.get("model_name", "deepseek-v4-flash"),
         "llm_api_key": api.get("api_key", ""),
+        "thinking_mode": str(api.get("thinking_mode", "auto")),
+        "skip_model_check": str(api.get("skip_model_check", False)).lower(),
         "max_depth": str(agent.get("max_depth", 2)),
         "max_clones": fmt_max_clones(agent.get("max_clones", {})),
     }
@@ -257,6 +262,12 @@ def save_settings(settings, appearance):
             api["model_name"] = str(settings["llm_model"]).strip()
         if "llm_api_key" in settings:
             api["api_key"] = str(settings["llm_api_key"]).strip()
+        if "thinking_mode" in settings:
+            api["thinking_mode"] = str(settings["thinking_mode"]).strip() or "auto"
+        if "skip_model_check" in settings:
+            api["skip_model_check"] = str(settings["skip_model_check"]).lower() in (
+                "true", "1", "yes", "on"
+            )
         if "max_depth" in settings:
             try:
                 agent["max_depth"] = int(str(settings["max_depth"]).strip() or 2)
@@ -296,18 +307,17 @@ def save_settings(settings, appearance):
 # 独立实现（不复用 AntNest.detect_model_len —— 那个失败会 sys.exit(1) 打死进程）。
 # 只用标准库，行为对齐 AntNest 第 113-150 行，但返回值而非退出。
 
-def verify_api(base_url, model, api_key, timeout=12):
-    """返回 (ok: bool, msg: str, models_data: list)。任何异常都不抛出。"""
+def fetch_models_list(base_url, api_key, timeout=12) -> dict:
+    """拉取 /models 列表。返回 {ok, msg, models:[{id,vision}], raw}，不抛异常。"""
     import urllib.request
     import urllib.error
 
     base = (base_url or "").strip().rstrip("/")
-    model = (model or "").strip()
     key = (api_key or "").strip()
     if not base:
-        return False, "Base URL 为空", []
+        return {"ok": False, "msg": "Base URL 为空", "models": [], "raw": []}
     if not key:
-        return False, "API Key 为空", []
+        return {"ok": False, "msg": "API Key 为空", "models": [], "raw": []}
 
     url = f"{base}/models"
     req = urllib.request.Request(
@@ -324,24 +334,52 @@ def verify_api(base_url, model, api_key, timeout=12):
             body = ""
     except Exception as e:
         trace("S0b", "warn", f"连接失败 {base}：{e}")
-        return False, f"无法连接到 {base}：{e}", []
+        return {"ok": False, "msg": f"无法连接到 {base}：{e}", "models": [], "raw": []}
 
     if status == 401:
-        return False, "API Key 无效或未授权（HTTP 401）", []
+        return {"ok": False, "msg": "API Key 无效或未授权（HTTP 401）", "models": [], "raw": []}
     if status != 200:
-        return False, f"获取模型列表失败（HTTP {status}）：{body[:120]}", []
+        return {
+            "ok": False,
+            "msg": f"获取模型列表失败（HTTP {status}）：{body[:120]}",
+            "models": [],
+            "raw": [],
+        }
     try:
         out = json.loads(body)
     except json.JSONDecodeError:
-        return False, f"返回了非法 JSON：{body[:120]}", []
+        return {"ok": False, "msg": f"返回了非法 JSON：{body[:120]}", "models": [], "raw": []}
 
-    data = [d for d in out.get("data", []) if isinstance(d, dict)]
-    ids = [d.get("id", "") for d in data]
+    raw = [d for d in out.get("data", []) if isinstance(d, dict) and d.get("id")]
+    models = [
+        {
+            "id": d["id"],
+            "vision": supports_vision(d["id"], raw),
+            "rec": recommend_model_settings(base, d["id"]),
+        }
+        for d in raw
+    ]
+    msg = f"共检测到 {len(models)} 个模型 @ {base}"
+    trace("S0b", "info", msg)
+    return {"ok": True, "msg": msg, "models": models, "raw": raw}
+
+
+def verify_api(base_url, model, api_key, timeout=12):
+    """返回 (ok: bool, msg: str, models_data: list)。任何异常都不抛出。"""
+    base = (base_url or "").strip().rstrip("/")
+    model = (model or "").strip()
+    result = fetch_models_list(base, api_key, timeout)
+    if not result["ok"]:
+        return False, result["msg"], []
+
+    raw = result.get("raw") or []
+    ids = [m["id"] for m in result.get("models") or []]
     if model and model not in ids:
-        preview = ", ".join(ids[:8]) or "（空）"
-        return False, f"Key 有效，但未找到模型 '{model}'。可用：{preview}", data
+        preview = ", ".join(ids[:12]) or "（空）"
+        more = f" 等 {len(ids)} 个" if len(ids) > 12 else ""
+        return False, f"Key 有效，但未找到模型 '{model}'。可用：{preview}{more}", raw
     trace("S0b", "info", f"校验通过 {model} @ {base}（{len(ids)} 个模型）")
-    return True, f"校验通过：{model} @ {base}", data
+    return True, f"校验通过：{model} @ {base}（{len(ids)} 个模型）", raw
 
 
 def supports_vision(model_name, models_list=None):
@@ -387,6 +425,8 @@ def push_env(settings):
         "ANT_BASE_URL": (settings.get("llm_base_url") or "").strip().rstrip("/"),
         "ANT_MODEL_NAME": (settings.get("llm_model") or "").strip(),
         "ANT_API_KEY": (settings.get("llm_api_key") or "").strip(),
+        "ANT_THINKING_MODE": (settings.get("thinking_mode") or "").strip(),
+        "ANT_SKIP_MODEL_CHECK": (settings.get("skip_model_check") or "").strip(),
     }
     changed = []
     for k, v in mapping.items():
@@ -630,6 +670,12 @@ class AntNestCore:
                 m.COMMON_HEADER = {"User-Agent": "AntNest", "Authorization": f"Bearer {key}"}
             if settings.get("max_depth"):
                 m.MAX_DEPTH = int(str(settings["max_depth"]).strip())
+            if settings.get("thinking_mode"):
+                m.THINKING_MODE = str(settings["thinking_mode"]).strip().lower() or "auto"
+            if "skip_model_check" in settings:
+                m.SKIP_MODEL_CHECK = str(settings["skip_model_check"]).lower() in (
+                    "true", "1", "yes", "on"
+                )
             trace("S3", "info", f"热应用：{m.ANT_MODEL_NAME} @ {m.ANT_BASE_URL} depth<={m.MAX_DEPTH}")
             self._init_mcp(self._ui_settings)
         except Exception as e:
@@ -710,8 +756,12 @@ class AntNestCore:
         try:
             from mcp_client import get_hub
 
-            cfg = str(settings.get("mcp_config", "mcp.json")).strip()
+            cfg = str(settings.get("mcp_config", "mcp.json")).strip() or "mcp.json"
             cfg_path = cfg if os.path.isabs(cfg) else os.path.join(THIS_DIR, cfg)
+            if not os.path.isfile(cfg_path):
+                trace("S4", "info", f"MCP 配置文件不存在：{cfg_path}，已跳过")
+                self.log("sys", "MCP 未配置：复制 mcp.json.example 为 mcp.json，或在设置中关闭 MCP")
+                return
             hub = get_hub()
             hub.load_config(cfg_path)
             m.MCP_HUB = hub
@@ -721,6 +771,46 @@ class AntNestCore:
         except Exception as e:
             trace("S4", "warn", f"MCP 加载失败：{e}")
             self.log("warn", f"MCP 加载失败：{e}")
+
+    def list_models_async(self, settings, on_done=None):
+        """后台拉取 /models 列表，供设置面板「检测模型列表」使用。"""
+
+        def _run():
+            self.emit("models", state="start", detail="正在检测模型列表…")
+            result = fetch_models_list(
+                settings.get("llm_base_url"),
+                settings.get("llm_api_key"),
+            )
+            if result.get("ok"):
+                self._models_list = result.get("raw") or []
+                current = settings.get("llm_model", "")
+                self._vision_supported = supports_vision(current, self._models_list)
+                patched, rec = apply_recommendations(
+                    settings, settings.get("llm_base_url"), current
+                )
+                if rec.get("hint"):
+                    result["msg"] = f"{result.get('msg', '')} · {rec['hint']}"
+                    result["rec"] = rec
+                    result["settings_patch"] = {
+                        k: patched[k]
+                        for k in ("thinking_mode", "skip_model_check")
+                        if k in patched
+                    }
+            self.emit(
+                "models",
+                state="ok" if result.get("ok") else "fail",
+                detail=result.get("msg", ""),
+                list=result.get("models") or [],
+                rec=result.get("rec"),
+                settings_patch=result.get("settings_patch"),
+            )
+            if on_done:
+                try:
+                    on_done(result)
+                except Exception as e:
+                    trace("S0b", "error", f"模型列表回调异常：{e}")
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _inject_skill(self, text, skill_name):
         settings = self._ui_settings or {}
@@ -741,6 +831,7 @@ class AntNestCore:
             trace("S5", "warn", f"Skill 注入失败：{e}")
             return text
 
+    # ---------------- S5 单轮执行
     # ---------------- S5 单轮执行
     def send(self, text, image_b64=None, image_mime="image/png", skill=""):
         text = (text or "").strip()
@@ -872,7 +963,27 @@ class AntNestCore:
             )
             self._models_list = ids or []
             self._vision_supported = supports_vision(settings.get("llm_model", ""), ids)
-            self.emit("verify", state="ok" if ok else "fail", detail=msg)
+            rec = None
+            settings_patch = None
+            if ok:
+                _, rec = apply_recommendations(
+                    settings,
+                    settings.get("llm_base_url"),
+                    settings.get("llm_model"),
+                )
+                if rec.get("hint"):
+                    msg = f"{msg} · {rec['hint']}"
+                settings_patch = {
+                    "thinking_mode": rec.get("thinking_mode"),
+                    "skip_model_check": rec.get("skip_model_check"),
+                }
+            self.emit(
+                "verify",
+                state="ok" if ok else "fail",
+                detail=msg,
+                rec=rec,
+                settings_patch=settings_patch,
+            )
             if on_done:
                 try:
                     on_done(ok, msg)

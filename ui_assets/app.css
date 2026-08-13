@@ -281,4 +281,11 @@ body{
 .skills-modal .skill-meta{font-size:12px; color:var(--muted); margin-bottom:4px}
 .skills-modal .skill-desc{font-size:13px; color:var(--text); line-height:1.5}
 .skills-modal .empty{text-align:center; padding:30px 10px}
+
+/* 模型列表弹窗 */
+.models-modal .model-list{display:flex; flex-direction:column; gap:8px; max-height:55vh; overflow:auto; padding-right:4px}
+.models-modal .model-item{display:block; width:100%; text-align:left; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--card-border); background:rgba(255,255,255,0.03); color:var(--text); cursor:pointer}
+.models-modal .model-item:hover{border-color:var(--accent); background:rgba(76,201,240,0.08)}
+.models-modal .model-item.active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset}
 """)

@@ -24,6 +24,7 @@ from datetime import date
 import code_tools as ct
 import antnest_clone_worker
 import antnest_session as session_mod
+from api_compat import effective_temperature, resolve_api_profile, sanitize_messages_for_api
 
 # ====================== 路径解析 ======================
 _resolved = Path(__file__).resolve()
@@ -32,6 +33,13 @@ THIS_DIR = str(_resolved.parent)
 
 # 工蚁模式：在 LLM 加载前执行并退出
 antnest_clone_worker.run_if_clone_mode()
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
 
 # ====================== LLM 配置区（仅蚁后模式到达此处） ======================
 # 优先级：环境变量 > config.json > 默认值
@@ -58,7 +66,86 @@ if not ANT_API_KEY:
 
 COMMON_HEADER = {"User-Agent": "AntNest", "Authorization": f"Bearer {ANT_API_KEY}"}
 
+
+def _config_bool(val, default=False) -> bool:
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return default
+    return str(val).strip().lower() in ("true", "1", "yes", "on")
+
+
+DEFAULT_TOKEN_CAP = int(_config_api.get("default_token_cap") or 128000)
+SKIP_MODEL_CHECK = _config_bool(
+    os.environ.get("ANT_SKIP_MODEL_CHECK") or _config_api.get("skip_model_check")
+)
+THINKING_MODE = (
+    os.environ.get("ANT_THINKING_MODE") or _config_api.get("thinking_mode") or "auto"
+).strip().lower()
+
+
+def _thinking_requested(thinking: bool, profile: str) -> bool:
+    mode = (THINKING_MODE or "auto").lower()
+    if mode in ("off", "false", "0", "disabled", "none"):
+        return False
+    if mode in ("on", "true", "1", "enabled"):
+        return True
+    # auto：仅 DeepSeek 等明确支持的提供商尝试 thinking
+    return bool(thinking and profile == "deepseek")
+
+
+def _retry_after_seconds(err: urllib.error.HTTPError, attempt: int) -> float:
+    ra = err.headers.get("Retry-After") if err.headers else None
+    if ra:
+        try:
+            return max(float(ra), 1.0)
+        except ValueError:
+            pass
+    return min(2 ** (attempt + 1), 30)
+
+
+def _http_error_with_body(err: urllib.error.HTTPError, body: str) -> urllib.error.HTTPError:
+    import io
+
+    return urllib.error.HTTPError(
+        err.url,
+        err.code,
+        err.reason,
+        err.headers,
+        io.BytesIO(body.encode("utf-8", errors="replace")),
+    )
+
+
+def _urlopen_with_retry(req: urllib.request.Request, max_retries: int = 3):
+    """对 429/502/503 做有限次退避重试。"""
+    retryable = {429, 502, 503}
+    last_err = None
+    last_raw = ""
+    for attempt in range(max_retries + 1):
+        try:
+            return urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            last_err = e
+            last_raw = e.read().decode("utf-8", errors="replace")
+            if e.code not in retryable or attempt >= max_retries:
+                raise _http_error_with_body(e, last_raw) from e
+            wait = _retry_after_seconds(e, attempt)
+            hint = "服务繁忙" if e.code == 429 else "网关异常"
+            sys.stdout.write(
+                f"\n[!] {hint} (HTTP {e.code})，{wait:.0f}s 后重试 ({attempt + 1}/{max_retries})…\n"
+            )
+            sys.stdout.flush()
+            time.sleep(wait)
+    if last_err:
+        raise _http_error_with_body(last_err, last_raw)
+    raise RuntimeError("LLM 请求失败")
+
+
 def detect_model_len():
+    if SKIP_MODEL_CHECK:
+        print(f"> 已跳过 /models 检测，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        return DEFAULT_TOKEN_CAP
+
     url = f"{ANT_BASE_URL}/models"
     req = urllib.request.Request(url, headers=COMMON_HEADER)
     try:
@@ -69,33 +156,50 @@ def detect_model_len():
         status = e.code
         body = e.read().decode("utf-8", errors="replace")
     except Exception as e:
-        print(f"错误：无法连接到 {ANT_BASE_URL}，请检查 ANT_BASE_URL 配置。\n详情：{e}")
-        sys.exit(1)
+        print(f"警告：无法连接 {ANT_BASE_URL} 的 /models（{e}），使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        return DEFAULT_TOKEN_CAP
 
     if status == 401:
         print("错误：API Key 无效或未授权，请检查 ANT_API_KEY 配置。")
         sys.exit(1)
     if status != 200:
-        print(f"错误：获取模型列表失败（HTTP {status}）：{body[:200]}")
-        sys.exit(1)
+        print(
+            f"警告：/models 不可用（HTTP {status}）：{body[:200]}。"
+            f"使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}。"
+            f"可在 config.json 设置 skip_model_check=true 跳过此检测。"
+        )
+        return DEFAULT_TOKEN_CAP
 
     try:
         out = json.loads(body)
     except json.JSONDecodeError:
-        print(f"错误：获取模型列表返回了非法 JSON：{body[:200]}")
-        sys.exit(1)
+        print(f"警告：/models 返回非法 JSON，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        return DEFAULT_TOKEN_CAP
 
-    for d in out["data"]:
-        if d["id"] == ANT_MODEL_NAME:
-            raw = d.get("max_model_len")
-            if raw:  # None / 0 / 空串等 falsy 值都走兜底
-                return raw
+    data = out.get("data") if isinstance(out, dict) else None
+    if not isinstance(data, list):
+        print(f"警告：/models 响应无 data 列表，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        return DEFAULT_TOKEN_CAP
+
+    for d in data:
+        if isinstance(d, dict) and d.get("id") == ANT_MODEL_NAME:
+            raw = d.get("max_model_len") or d.get("context_length") or d.get("max_tokens")
+            if raw:
+                try:
+                    return int(raw)
+                except (TypeError, ValueError):
+                    pass
             return {"deepseek-v4-flash": 1_000_000, "deepseek-v4-pro": 1_000_000}.get(
-                ANT_MODEL_NAME, 256_000
+                ANT_MODEL_NAME, DEFAULT_TOKEN_CAP
             )
-    print(f"错误：在 {ANT_BASE_URL} 上未找到模型 '{ANT_MODEL_NAME}'，请检查 ANT_MODEL_NAME 配置。")
-    print(f"可用模型：{[d['id'] for d in out.get('data', [])]}")
-    sys.exit(1)
+
+    ids = [d.get("id", "") for d in data if isinstance(d, dict)]
+    preview = ", ".join(ids[:8]) or "（空）"
+    print(
+        f"警告：在 {ANT_BASE_URL} 未找到模型 '{ANT_MODEL_NAME}'。"
+        f"可用示例：{preview}。使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}"
+    )
+    return DEFAULT_TOKEN_CAP
 
 # ====================== AntNest 配置区 ======================
 _config_agent = _config.get("agent", {})
@@ -609,7 +713,7 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(THIS_FILE, clone_script)
-    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py"):
+    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py"):
         _src = os.path.join(THIS_DIR, _dep)
         if os.path.isfile(_src):
             shutil.copy2(_src, os.path.join(clone_dir, _dep))
@@ -633,6 +737,8 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     try:
         env = os.environ.copy()
         env["AN_CLONE_MODE"] = "1"
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
         env["AN_CLONE_DIR"] = clone_dir
         env["AN_RESULT_FILE"] = result_file
         env["AN_CLONE_TIMEOUT"] = str(timeout)
@@ -827,6 +933,9 @@ def leave_memory_hints(hints):
             compact_i = i
             break
 
+    if compact_i < 0:
+        return "错误：未找到记忆压缩标记，无法执行 leave_memory_hints。"
+
     last_user_i = compact_i - 1
     for i in range(last_user_i, -1, -1):
         if messages[i]["role"] == "user":
@@ -870,23 +979,30 @@ def clean_input(text):
 
 
 def _build_request_data(messages, tools=None, temperature=0.6, thinking=True, stream=False):
+    profile = resolve_api_profile(ANT_BASE_URL)
+    use_thinking = _thinking_requested(thinking, profile)
+    temp = effective_temperature(temperature, profile, ANT_MODEL_NAME)
     data = {
         "model": ANT_MODEL_NAME,
-        "messages": messages,
-        "temperature": temperature,
-        "presence_penalty": 0.0,
-        "repetition_penalty": 1.0,
-        "top_p": 0.95,
-        "top_k": 20,
-        "min_p": 0.0,
-        "chat_template_kwargs": {"enable_thinking": thinking},
-        "thinking": {"type": "enabled" if thinking else "disabled"},
+        "messages": sanitize_messages_for_api(messages, profile),
+        "temperature": temp,
     }
+
+    if profile == "deepseek":
+        data["top_p"] = 0.95
+        data["thinking"] = {"type": "adaptive" if use_thinking else "disabled"}
+    elif profile == "openai":
+        data["top_p"] = 1.0
+    else:
+        # MiniMax / 硅基 / 智谱等：仅标准 OpenAI 字段，避免 400
+        data["top_p"] = 0.95
+
     if tools:
         data["tools"] = tools
     if stream:
         data["stream"] = True
-        data["stream_options"] = {"include_usage": True}
+        if profile in ("deepseek", "openai", "openai_compat"):
+            data["stream_options"] = {"include_usage": True}
     return data
 
 
@@ -936,19 +1052,46 @@ class RepeatSuffixChecker:
 def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
     url = f"{ANT_BASE_URL}/chat/completions"
     data = _build_request_data(messages, tools, temperature, thinking, stream=True)
+
+    def _open(body_bytes: bytes):
+        req = urllib.request.Request(
+            url,
+            data=body_bytes,
+            headers={**COMMON_HEADER, "Content-Type": "application/json"},
+        )
+        return _urlopen_with_retry(req)
+
     body = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={**COMMON_HEADER, "Content-Type": "application/json"},
-    )
     try:
-        resp = urllib.request.urlopen(req)
+        resp = _open(body)
         global _ACTIVE_STREAM_RESP
         _ACTIVE_STREAM_RESP = resp
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
-        raise Exception(f"LLM调用失败，HTTP {e.code}: {raw[:500]}")
+        if e.code == 400:
+            minimal = {
+                "model": ANT_MODEL_NAME,
+                "messages": sanitize_messages_for_api(
+                    messages, resolve_api_profile(ANT_BASE_URL)
+                ),
+                "temperature": data["temperature"],
+                "stream": True,
+            }
+            if tools:
+                minimal["tools"] = tools
+            try:
+                resp = _open(json.dumps(minimal).encode("utf-8"))
+                _ACTIVE_STREAM_RESP = resp
+            except urllib.error.HTTPError as e2:
+                raw2 = e2.read().decode("utf-8", errors="replace")
+                raise Exception(f"LLM调用失败，HTTP {e2.code}: {raw2[:500]}")
+        elif e.code == 429:
+            raise Exception(
+                f"LLM调用失败，HTTP 429：API 服务端过载，已自动重试仍失败。"
+                f"请稍后再试或换时段/换模型。详情：{raw[:300]}"
+            )
+        else:
+            raise Exception(f"LLM调用失败，HTTP {e.code}: {raw[:500]}")
 
     content_parts = []
     reasoning_parts = []
@@ -997,7 +1140,7 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
                 if not is_thinking:
                     is_thinking = True
                     if not _stream_emit("reasoning_start"):
-                        sys.stdout.write("\033[2m💭 ")
+                        sys.stdout.write("\033[2m[think] ")
                 if not _stream_emit("reasoning", reasoning_content):
                     sys.stdout.write(reasoning_content)
                     sys.stdout.flush()
@@ -1045,15 +1188,15 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
             sys.stdout.flush()
 
     full_content = "".join(content_parts)
-    message = {"role": role, "content": full_content or None}
+    message = {"role": role, "content": full_content if full_content else None}
     if reasoning_parts:
         message["reasoning_content"] = "".join(reasoning_parts)
-    else:
-        message["reasoning_content"] = ""
     if tool_calls_map:
         message["tool_calls"] = [
             tool_calls_map[i] for i in sorted(tool_calls_map.keys())
         ]
+        if not full_content:
+            message["content"] = " "
 
     if usage is None:
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -1098,7 +1241,7 @@ def agent_single_loop():
     break_loop = False
     while not break_loop:
         if AGENT_CANCEL:
-            print("\n\n⏹ 用户强行停止")
+            print("\n\n[STOP] 用户强行停止")
             messages.append({
                 "role": "user",
                 "content": "《系统提示》用户已强行停止当前操作。请简要确认已中断，并询问是否继续。",
@@ -1111,7 +1254,7 @@ def agent_single_loop():
             try:
                 msg, usage = llm_chat_stream(messages, tools=tools)
             except ThinkRepeatError:
-                print("\n\n💥 检测到 thinking 重复，自动中断")
+                print("\n\n[!] 检测到 thinking 重复，自动中断")
                 messages.append({
                     "role": "user",
                     "content": "警告：你的 thinking 中出现了大量重复内容，已被擦除。请继续，不要陷入循环。",
@@ -1128,8 +1271,9 @@ def agent_single_loop():
             sys.stdout.flush()
 
             if not msg.get("tool_calls"):
-                content = msg.get("content", "")
-                if not content:
+                content = msg.get("content") or ""
+                if not str(content).strip():
+                    messages.pop()
                     messages.append({
                         "role": "user",
                         "content": "警告：回复为空，没有输出也没有调用工具，请重新回答。",
@@ -1233,14 +1377,20 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
         try:
             display_usage(LAST_USAGE, TOKEN_CAP)
             if user_ask:
+                until_rounds = 0
+                until_max = int(os.environ.get("ANT_UNTIL_MAX_ROUNDS", "40"))
                 while True:
                     agent_single_loop()
                     msg = messages[-1]
                     if (
                         until
                         and msg.get("role") == "assistant"
-                        and until in msg.get("content", "")
+                        and until in (msg.get("content") or "")
                     ):
+                        break
+                    until_rounds += 1
+                    if until and until_rounds >= until_max:
+                        print(f"\n[!] 已达 until 最大轮数 ({until_max})，停止等待停止字符串。")
                         break
                     messages.append({
                         "role": "user",
@@ -1253,7 +1403,14 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
                 break
 
             print("")
-            user_input = read_input("[-] You: ").strip()
+            user_input = read_input("[-] You: ")
+            if user_input is None:
+                print("\n输入结束")
+                if not user_ask or save_after:
+                    save_session(messages)
+                    release_lock()
+                break
+            user_input = user_input.strip()
             if not user_input:
                 continue
 
@@ -1324,7 +1481,7 @@ def read_input(prompt=""):
     try:
         return input(prompt)
     except EOFError:
-        return ""
+        return None
 
 
 # ====================== 主入口 ======================

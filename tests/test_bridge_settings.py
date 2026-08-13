@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import importlib
 import os
 import sys
 import tempfile
@@ -50,7 +51,6 @@ class BridgeSettingsTest(unittest.TestCase):
             os.environ.setdefault("ANT_API_KEY", "k")
             os.environ.setdefault("ANT_MODEL_NAME", "deepseek-v4-flash")
 
-            import importlib
             import antnest_bridge as bridge_mod
 
             importlib.reload(bridge_mod)
@@ -76,6 +76,17 @@ class BridgeSettingsTest(unittest.TestCase):
             self.assertTrue(core._ui_settings.get("mcp_enabled"))
             for k in ("ANT_CONFIG_PATH", "ANT_UI_CONFIG_PATH"):
                 os.environ.pop(k, None)
+
+
+class FetchModelsTest(unittest.TestCase):
+    def test_fetch_models_list_success(self):
+        import antnest_bridge as bridge_mod
+
+        with mock.patch("urllib.request.urlopen", _mock_models_open):
+            result = bridge_mod.fetch_models_list("https://example.com/v1", "test-key")
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["models"]), 1)
+        self.assertEqual(result["models"][0]["id"], "deepseek-v4-flash")
 
 
 if __name__ == "__main__":

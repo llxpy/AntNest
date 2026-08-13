@@ -1,6 +1,6 @@
 [project]
 name = "antnest"
-version = "1.2.0"
+version = "1.2.1"
 description = "AntNest - an AI coding agent with a queen/worker (ant) architecture and a desktop UI"
 readme = "README.md"
 requires-python = ">=3.13"

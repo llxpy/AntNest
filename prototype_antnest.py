@@ -227,6 +227,20 @@ def _set_thinking(text=""):
     )
 
 
+def _apply_settings_patch(patch):
+    """将模型推荐参数写入内存 SETTINGS 并同步到 core。"""
+    if not patch:
+        return
+    changed = False
+    for k, v in patch.items():
+        if v is None or k not in SETTINGS:
+            continue
+        SETTINGS[k] = str(v)
+        changed = True
+    if changed:
+        core.set_ui_settings(SETTINGS)
+
+
 def _vision_enabled():
     """当前模型是否支持图片：必须「已配置 API Key 且模型支持图片」才放行。"""
     return bool((SETTINGS.get("llm_api_key") or "").strip()) and bool(
@@ -337,6 +351,10 @@ def on_core_event(kind, p):
             elif st == "ok":
                 _set_pill("ok", "Key 有效")
                 _push_log("sys", f"✓ {detail}")
+                patch = p.get("settings_patch")
+                if patch:
+                    _apply_settings_patch(patch)
+                    app.run_js(f"applyModelRecommendations({json.dumps(patch)});")
             else:
                 _set_pill("fail", "Key 无效")
                 _push_log("warn", f"✗ {detail}")
@@ -357,6 +375,34 @@ def on_core_event(kind, p):
                 _set_thinking("")
                 app.run_js("setStopEnabled(false);")
                 _flush()  # 收尾强制刷一次，避免最后一批事件卡在 debounce 里
+
+        elif kind == "models":
+            st = p.get("state")
+            detail = p.get("detail", "")
+            if st == "start":
+                _set_pill("thinking", "检测模型")
+                _push_log("sys", detail)
+                _mark("log")
+            elif st == "ok":
+                _set_pill("ok", "模型就绪")
+                _push_log("sys", f"✓ {detail}")
+                models = p.get("list") or []
+                patch = p.get("settings_patch")
+                if patch:
+                    _apply_settings_patch(patch)
+                _render_models_list(models)
+                app.run_js(f"openModelsModal({json.dumps(models)});")
+                if patch:
+                    app.run_js(f"applyModelRecommendations({json.dumps(patch)});")
+                app.run_js(
+                    f"updateImageBtn({json.dumps(_vision_enabled())}, {json.dumps(_vision_reason())});"
+                )
+                _mark("log")
+            else:
+                _set_pill("fail", "检测失败")
+                _push_log("warn", f"✗ {detail}")
+                app.run_js(f"setVerifyHint({json.dumps(detail)}, 'bad');")
+                _mark("log")
 
         elif kind == "skill_list":
             SKILLS_CACHE = p.get("list", [])
@@ -390,6 +436,10 @@ _LOG_DOM_COUNT = len(LOGS)
 
 # 启动后静默检查更新（仅提示，不自动下载/执行）
 threading.Thread(target=check_update, daemon=True).start()
+
+# 启动后校验 API，刷新图片按钮状态（避免未点「保存并校验」时无法粘贴截图）
+if (SETTINGS.get("llm_api_key") or "").strip():
+    core.verify_async(SETTINGS)
 
 
 # ------------------------------------------------------------------ 渲染辅助
@@ -459,11 +509,12 @@ def _workers():
     return ui.div(id="workers")[ui.raw(_workers_html())]
 
 
-def _field(key, label, value, full=False, code=False, browse=None, hint="", input_type="text"):
+def _field(key, label, value, full=False, code=False, browse=None, hint="", input_type="text", list_id=""):
     cls = "field-input" + (" code" if code else "")
     type_attr = f' type="{input_type}"' if input_type != "text" else ""
+    list_attr = f' list="{list_id}"' if list_id else ""
     inp = ui.raw(
-        f'<input class="{cls}" id="set-{key}" value="{_h.escape(str(value))}"{type_attr}>'
+        f'<input class="{cls}" id="set-{key}" value="{_h.escape(str(value))}"{type_attr}{list_attr}>'
     )
     label_html = f'<div class="field-label">{_h.escape(label)}</div>'
     hint_html = f'<div class="field-hint">{_h.escape(hint)}</div>' if hint else ""
@@ -562,6 +613,60 @@ def _skills_modal():
     ]
 
 
+def _models_list_html(models=None):
+    models = models or []
+    if not models:
+        return '<div class="empty">尚未检测。请填写 Base URL 与 API Key 后点「检测模型列表」。</div>'
+    parts = []
+    current = SETTINGS.get("llm_model", "")
+    for m in models:
+        mid = m.get("id", "") if isinstance(m, dict) else str(m)
+        if not mid:
+            continue
+        vision = m.get("vision") if isinstance(m, dict) else False
+        rec = m.get("rec") if isinstance(m, dict) else {}
+        tag = '<span class="skill-tag">vision</span>' if vision else ""
+        if isinstance(rec, dict) and rec.get("thinking_mode"):
+            tag += f'<span class="skill-tag">{_h.escape(rec["thinking_mode"])}</span>'
+        active = " active" if mid == current else ""
+        parts.append(
+            f'<button type="button" class="model-item{active}" onclick="pickModel({json.dumps(mid)})">'
+            f'<span class="skill-name">{_h.escape(mid)}{tag}</span></button>'
+        )
+    return '<div class="model-list">' + "".join(parts) + "</div>"
+
+
+def _models_modal():
+    return ui.div(
+        cls="modal models-modal",
+        id="models-modal",
+        onclick="if(event.target===this) closeModelsModal()",
+    )[
+        ui.raw('<button type="button" class="modal-close global" onclick="closeModelsModal()" title="关闭">×</button>'),
+        ui.div(cls="modal-card", onclick="event.stopPropagation()")[
+            ui.h2()["可用模型列表"],
+            ui.raw('<p class="muted" style="font-size:13px;margin:-8px 0 12px">点击模型名填入设置；带 vision 标签的支持图片</p>'),
+            ui.div(id="models-list")[ui.raw(_models_list_html())],
+            ui.div(cls="modal-actions")[
+                ui.raw('<button class="btn ghost" onclick="onListModels()">重新检测</button>'),
+                ui.raw('<button class="btn" onclick="closeModelsModal()">关闭</button>'),
+            ],
+        ],
+    ]
+
+
+def _render_models_list(models=None):
+    app.update("#models-list", _models_list_html(models))
+    if not models:
+        return
+    opts = "".join(
+        f'<option value="{_h.escape(m.get("id", "") if isinstance(m, dict) else str(m))}"></option>'
+        for m in models
+        if (m.get("id") if isinstance(m, dict) else str(m))
+    )
+    app.run_js(f"var d=document.getElementById('model-list-options'); if(d) d.innerHTML={json.dumps(opts)};")
+
+
 def _skills_list_html():
     if not SKILLS_CACHE:
         return '<div class="empty">未找到 Skills。请在「设置」中配置正确的 Skills 目录，然后点刷新。</div>'
@@ -596,11 +701,17 @@ def _render_skills_list():
 def _settings_modal():
     llm = ui.div(cls="settings-grid")[
         _field("llm_base_url", "API Base URL", SETTINGS["llm_base_url"], code=True,
-               hint="OpenAI 兼容接口地址"),
+               hint="OpenAI 兼容接口地址（DeepSeek / MiniMax / OpenAI 等）"),
         _field("llm_model", "模型名称", SETTINGS["llm_model"], code=True,
-               hint="如 deepseek-v4-flash"),
+               hint="可点「检测模型列表」从远端拉取；不支持 /models 的服务请手填",
+               list_id="model-list-options"),
+        ui.raw('<datalist id="model-list-options"></datalist>'),
         _field("llm_api_key", "API Key", SETTINGS["llm_api_key"], full=True, code=True,
                hint="仅保存在本机 config.json", input_type="password"),
+        _field("thinking_mode", "Thinking 模式", SETTINGS.get("thinking_mode", "auto"), code=True,
+               hint="auto=按提供商自动 / on=强制 / off=关闭（MiniMax 建议 off 或 auto）"),
+        _toggle("skip_model_check", "跳过 /models 检测", SETTINGS.get("skip_model_check", "false"),
+                hint="MiniMax 等不支持模型列表的 API 请开启"),
     ]
     agent = ui.div(cls="settings-grid")[
         _field("max_depth", "最大递归深度", SETTINGS["max_depth"], code=True,
@@ -650,6 +761,7 @@ def _settings_modal():
             ui.div(cls="settings-footer")[
                 ui.raw('<span class="verify-hint" id="verify-hint"></span>'),
                 ui.raw('<button type="button" class="btn ghost" onclick="openSkillsModal()">管理 Skills</button>'),
+                ui.raw('<button type="button" class="btn ghost" onclick="onListModels()">检测模型列表</button>'),
                 ui.raw('<button type="button" class="btn ghost" onclick="onTestApi()">测试连接</button>'),
                 ui.raw('<button type="button" class="btn ghost" onclick="closeSettings()">取消</button>'),
                 ui.raw('<button type="button" class="btn" onclick="onSaveSettings()">保存并校验</button>'),
@@ -848,6 +960,37 @@ def on_open_sponsor(data):
     app.run_js(f"openSponsorModal({json.dumps(images)});")
 
 
+@app.route("pick_model")
+def on_pick_model(data):
+    """从模型列表选中后填入设置，并自动套用该模型的推荐参数。"""
+    mid = (data or {}).get("value", "").strip()
+    if not mid:
+        return
+    SETTINGS["llm_model"] = mid
+    patched, rec = bridge.apply_recommendations(
+        SETTINGS, SETTINGS.get("llm_base_url"), mid
+    )
+    patch = {k: patched[k] for k in ("thinking_mode", "skip_model_check") if k in patched}
+    _apply_settings_patch(patch)
+    app.run_js(f"applyModelRecommendations({json.dumps(patch)});")
+    hint = rec.get("hint") or f"已选择模型：{mid}"
+    app.run_js(f"setVerifyHint({json.dumps(hint)}, 'ok');")
+
+
+@app.route("list_models")
+def on_list_models(data):
+    """设置面板：拉取 /models 并展示可选模型。"""
+    s = (data or {}).get("settings") or SETTINGS
+
+    def _done(result):
+        app.run_js(
+            "setVerifyHint(%s, %s);"
+            % (json.dumps(result.get("msg", "")), json.dumps("ok" if result.get("ok") else "bad"))
+        )
+
+    core.list_models_async(s, on_done=_done)
+
+
 @app.route("test_api")
 def on_test_api(data):
     """设置面板里的「测试连接」：只校验，不保存、不改环境。"""
@@ -1043,6 +1186,7 @@ app.body(
     _settings_modal(),
     # Skills 展示页
     _skills_modal(),
+    _models_modal(),
     # 赞助作者二维码弹窗
     ui.raw(
         '<div id="sponsor-modal" class="sponsor-modal" onclick="if(event.target===this) closeSponsorModal()">'
