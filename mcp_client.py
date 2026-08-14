@@ -40,6 +40,7 @@ class McpSession:
             errors="replace",
             env={**os.environ, **{str(k): str(v) for k, v in (env or {}).items()}},
             bufsize=1,
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
         self._lock = threading.Lock()
         self._next_id = 1

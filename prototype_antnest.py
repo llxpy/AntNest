@@ -12,11 +12,46 @@ UI 只做「订阅事件 → 改状态 → 局部刷新」，不含任何业务�
 
 运行：uv run python prototype_antnest.py
 """
+import sys
+import os
+import traceback
+
+# ---------------------------------------------------------------------------
+# 全局致命错误钩子：任何崩溃（含导入期 / 启动前）都弹窗 + 写日志，
+# 绝不让 pythonw 静默退出导致「双击 exe 啥也没有」。
+# 必须在其它 import 之前安装，才能罩住它们的导入错误。
+# ---------------------------------------------------------------------------
+def _show_fatal(err_text: str) -> None:
+    try:
+        _d = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".antnest")
+        os.makedirs(_d, exist_ok=True)
+        with open(os.path.join(_d, "startup_error.log"), "w", encoding="utf-8") as _f:
+            _f.write(err_text)
+    except Exception:
+        pass
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "AntNest 启动失败：\n" + err_text[-2000:],
+                "AntNest",
+                0x10,
+            )
+        except Exception:
+            pass
+
+
+def _global_excepthook(et, ev, tb):
+    _show_fatal("".join(traceback.format_exception(et, ev, tb)))
+
+
+sys.excepthook = _global_excepthook
+
 import base64
 import html as _h
 import json
 import mimetypes
-import os
 import re
 import threading
 import time
@@ -1200,4 +1235,6 @@ app.body(
 )
 
 if __name__ == "__main__":
+    # 所有未捕获异常（含导入期、启动前、app.run 运行期）由全局 sys.excepthook
+    # 统一弹窗 + 写 .antnest/startup_error.log，不再静默死亡。
     app.run()

@@ -471,7 +471,9 @@ class StdoutTap(io.TextIOBase):
         self._lock = threading.Lock()
 
     def write(self, s):
-        if not isinstance(s, str):
+        if isinstance(s, bytes):
+            s = s.decode("utf-8", errors="replace")
+        elif not isinstance(s, str):
             s = str(s)
         try:
             self._orig.write(s)

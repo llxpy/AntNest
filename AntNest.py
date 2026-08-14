@@ -36,10 +36,12 @@ antnest_clone_worker.run_if_clone_mode()
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(errors="replace")
-        sys.stderr.reconfigure(errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+# 让没有 reconfigure 的旧解释器/子进程也尽量输出 UTF-8
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 # ====================== LLM 配置区（仅蚁后模式到达此处） ======================
 # 优先级：环境变量 > config.json > 默认值
@@ -307,8 +309,10 @@ def collect_env_info():
                 [SHELL, SHELL_FLAG, cmd],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 errors="replace",
                 timeout=5,
+                **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
             )
             output = r.stdout.strip()
             if not output:
@@ -757,7 +761,9 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             errors="replace",
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
         global _ACTIVE_CLONE_PROC
         _ACTIVE_CLONE_PROC = proc
@@ -896,10 +902,12 @@ def run_cli(command: str, timeout: int = 300) -> str:
             [SHELL, SHELL_FLAG, command],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             errors="replace",
             cwd=os.getcwd(),
             timeout=timeout,
             shell=False,
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
         output = f"Exit code: {result.returncode}\n{result.stdout}"
         if result.stderr:

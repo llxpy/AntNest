@@ -25,6 +25,9 @@ def acquire_lock(project_dir: str, session_dir: str, is_windows: bool) -> None:
                     ["tasklist", "/FI", f"PID eq {pid}"],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
                 )
                 alive = str(pid) in result.stdout
             else:

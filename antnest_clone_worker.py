@@ -61,6 +61,7 @@ def run_if_clone_mode() -> None:
             shell=False,
             cwd=clone_dir,
             env=run_env,
+            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
         output = {
             "status": "ok" if result.returncode == 0 else "error",
