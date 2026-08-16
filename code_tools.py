@@ -14,10 +14,17 @@ from pathlib import Path
 
 
 def resolve_path(path: str, project_dir: str) -> Path:
+    """解析为绝对路径并强制限制在 project_dir 内，越界即拒绝（防写项目外/../逃逸）。"""
     p = Path(path or ".")
     if not p.is_absolute():
         p = Path(project_dir) / p
-    return p.resolve()
+    p = p.resolve()
+    base = Path(project_dir).resolve()
+    try:
+        p.relative_to(base)
+    except ValueError:
+        raise ValueError(f"路径越出项目目录，已拒绝：{path}")
+    return p
 
 
 def worker_py_cmd(py_code: str, *, is_windows: bool, python_exe: str) -> str:
@@ -72,47 +79,49 @@ def build_view_file_script(p: Path, start_line: int, end_line: int) -> str:
 def build_list_dir_script(p: Path, max_entries: int) -> str:
     m = max(1, int(max_entries or 100))
     return (
-        "import json,pathlib,sys;"
-        f"p=pathlib.Path({json.dumps(str(p))});"
-        f"m={m};"
-        "import sys as _s;"
-        "(_s.exit(2) if not p.is_dir() else 0);"
-        "items=[];"
-        "all_items=sorted(p.iterdir());"
-        "for x in all_items[:m]:"
-        " items.append(('[目录] ' if x.is_dir() else '[文件] ')+x.name);"
-        "hidden=max(0,len(all_items)-m);"
-        "print(json.dumps({'status':'ok','path':str(p),'entries':items,'hidden':hidden},ensure_ascii=False))"
+        "import json,pathlib,sys\n"
+        f"p=pathlib.Path({json.dumps(str(p))})\n"
+        f"m={m}\n"
+        "if not p.is_dir():\n"
+        "    sys.exit(2)\n"
+        "items=[]\n"
+        "all_items=sorted(p.iterdir())\n"
+        "for x in all_items[:m]:\n"
+        "    items.append(('[目录] ' if x.is_dir() else '[文件] ')+x.name)\n"
+        "hidden=max(0,len(all_items)-m)\n"
+        "print(json.dumps({'status':'ok','path':str(p),'entries':items,'hidden':hidden},ensure_ascii=False))\n"
     )
-
 
 def build_grep_script(p: Path, pattern: str, glob_pattern: str, max_matches: int) -> str:
     m = max(1, min(int(max_matches or 50), 200))
     return (
-        "import json,pathlib,re,sys;"
-        f"root=pathlib.Path({json.dumps(str(p))});"
-        f"pat=re.compile({json.dumps(pattern)}, re.MULTILINE);"
-        f"glob_pat={json.dumps(glob_pattern or '*')};"
-        f"limit={m};"
-        "import sys as _s;"
-        "(_s.exit(2) if not root.exists() else 0);"
-        "matches=[];"
-        "files=sorted(root.rglob(glob_pat)) if root.is_dir() else [root];"
-        "for fp in files:"
-        " if not fp.is_file(): continue;"
-        " try:"
-        "  lines=fp.read_text(encoding='utf-8',errors='replace').splitlines();"
-        " except Exception: continue;"
-        " for i,line in enumerate(lines,1):"
-        "  if pat.search(line):"
-        "   matches.append({'file':str(fp),'line':i,'text':line[:300]});"
-        "   if len(matches)>=limit: break;"
-        "  if len(matches)>=limit: break;"
-        " if len(matches)>=limit: break;"
-        "print(json.dumps({'status':'ok','pattern':pat.pattern,'root':str(root),"
-        "'match_count':len(matches),'matches':matches,'truncated':len(matches)>=limit},ensure_ascii=False))"
+        "import json,pathlib,re,sys\n"
+        f"root=pathlib.Path({json.dumps(str(p))})\n"
+        f"pat=re.compile({json.dumps(pattern)}, re.MULTILINE)\n"
+        f"glob_pat={json.dumps(glob_pattern or '*')}\n"
+        f"limit={m}\n"
+        "if not root.exists():\n"
+        "    sys.exit(2)\n"
+        "matches=[]\n"
+        "files=sorted(root.rglob(glob_pat)) if root.is_dir() else [root]\n"
+        "for fp in files:\n"
+        "    if not fp.is_file():\n"
+        "        continue\n"
+        "    try:\n"
+        "        lines=fp.read_text(encoding='utf-8',errors='replace').splitlines()\n"
+        "    except Exception:\n"
+        "        continue\n"
+        "    for i,line in enumerate(lines,1):\n"
+        "        if pat.search(line):\n"
+        "            matches.append({'file':str(fp),'line':i,'text':line[:300]})\n"
+        "            if len(matches)>=limit:\n"
+        "                break\n"
+        "        if len(matches)>=limit:\n"
+        "            break\n"
+        "    if len(matches)>=limit:\n"
+        "        break\n"
+        "print(json.dumps({'status':'ok','pattern':pat.pattern,'root':str(root),'match_count':len(matches),'matches':matches,'truncated':len(matches)>=limit},ensure_ascii=False))\n"
     )
-
 
 def build_write_file_script(p: Path, content: str) -> str:
     return (
@@ -129,28 +138,26 @@ def build_search_replace_script(
     p: Path, old_string: str, new_string: str, replace_all: bool
 ) -> str:
     return (
-        "import json,pathlib;"
-        f"p=pathlib.Path({json.dumps(str(p))});"
-        f"old={json.dumps(old_string)};"
-        f"new={json.dumps(new_string)};"
-        f"replace_all={json.dumps(bool(replace_all))};"
-        "result={'status':'error','error':'文件不存在','path':str(p)};"
-        "if p.is_file():"
-        " text=p.read_text(encoding='utf-8',errors='replace');"
-        " cnt=text.count(old);"
-        " if cnt==0:"
-        "  result={'status':'error','error':'未找到 old_string','path':str(p)};"
-        " elif not replace_all and cnt>1:"
-        "  result={'status':'error','error':f'old_string 出现 {cnt} 次，请缩小范围或设 replace_all=true',"
-        "'path':str(p),'occurrences':cnt};"
-        " else:"
-        "  n=cnt if replace_all else 1;"
-        "  new_text=text.replace(old,new,n) if replace_all else text.replace(old,new,1);"
-        "  p.write_text(new_text,encoding='utf-8');"
-        "  result={'status':'ok','path':str(p),'replacements':n,'occurrences_found':cnt};"
-        "print(json.dumps(result,ensure_ascii=False))"
+        "import json,pathlib\n"
+        f"p=pathlib.Path({json.dumps(str(p))})\n"
+        f"old={json.dumps(old_string)}\n"
+        f"new={json.dumps(new_string)}\n"
+        f"replace_all={str(bool(replace_all))}\n"
+        "result={'status':'error','error':'文件不存在','path':str(p)}\n"
+        "if p.is_file():\n"
+        "    text=p.read_text(encoding='utf-8',errors='replace')\n"
+        "    cnt=text.count(old)\n"
+        "    if cnt==0:\n"
+        "        result={'status':'error','error':'未找到 old_string','path':str(p)}\n"
+        "    elif not replace_all and cnt>1:\n"
+        "        result={'status':'error','error':f'old_string 出现 {cnt} 次，请缩小范围或设 replace_all=true','path':str(p),'occurrences':cnt}\n"
+        "    else:\n"
+        "        n=cnt if replace_all else 1\n"
+        "        new_text=text.replace(old,new,n) if replace_all else text.replace(old,new,1)\n"
+        "        p.write_text(new_text,encoding='utf-8')\n"
+        "        result={'status':'ok','path':str(p),'replacements':n,'occurrences_found':cnt}\n"
+        "print(json.dumps(result,ensure_ascii=False))\n"
     )
-
 
 def validate_grep_pattern(pattern: str) -> str | None:
     try:

@@ -21,3 +21,5 @@ installer/out/
 ui_config.json
 # 含 API key 的运行时配置，绝不能入库（安装包改用 installer/config.template.json 的空模板）
 config.json
+# 独立密钥文件（明文 key，权限 0600，同样绝不入库）
+config.json.key

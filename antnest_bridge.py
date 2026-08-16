@@ -50,6 +50,39 @@ CORE_CFG = os.environ.get("ANT_CONFIG_PATH") or os.path.join(THIS_DIR, "config.j
 UI_CFG = os.environ.get("ANT_UI_CONFIG_PATH") or os.path.join(THIS_DIR, "ui_config.json")     # UI 外观 + UI-only 项
 TRACE_DIR = os.environ.get("ANT_TRACE_DIR") or os.path.join(THIS_DIR, ".antnest")
 TRACE_LOG = os.path.join(TRACE_DIR, "ui_trace.log")
+TRACE_MAX_BYTES = 5 * 1024 * 1024   # ui_trace.log 超过即轮转
+TRACE_RECENT_MAX = 500              # 内存中的最近 trace 行数
+
+# 独立密钥文件：与 config.json 同目录，存明文 API Key（权限 0600），不进 config.json、不进 git。
+KEY_FILE = CORE_CFG + ".key"
+
+
+def _load_secret_key() -> str:
+    """优先从独立密钥文件读取 API Key（不在 config.json 明文存放）。"""
+    try:
+        if os.path.exists(KEY_FILE):
+            with open(KEY_FILE, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _store_secret_key(key: str) -> None:
+    """把 key 写入独立密钥文件（0600）；key 为空则删除该文件。"""
+    try:
+        if key:
+            with open(KEY_FILE, "w", encoding="utf-8") as f:
+                f.write(key.strip())
+            try:
+                os.chmod(KEY_FILE, 0o600)
+            except Exception:
+                pass
+        elif os.path.exists(KEY_FILE):
+            os.remove(KEY_FILE)
+    except Exception:
+        pass
+
 
 # 默认 Skills 目录：空值时解析为 app 同目录下的 Skills/（安装版随包），
 # 这样安装包只需要创建 {app}\Skills，ui_config.json 留空即可。
@@ -93,10 +126,16 @@ class _Trace:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         line = f"#{n:04d} {ts} [{stage}] {level.upper():5s} {msg}"
         self.recent.append(line)
-        if len(self.recent) > 500:
+        if len(self.recent) > TRACE_RECENT_MAX:
             del self.recent[:200]
         try:
             os.makedirs(TRACE_DIR, exist_ok=True)
+            # 超 TRACE_MAX_BYTES 轮转，防止自检/长会话把日志文件无限撑大
+            if os.path.exists(TRACE_LOG) and os.path.getsize(TRACE_LOG) > TRACE_MAX_BYTES:
+                try:
+                    os.replace(TRACE_LOG, TRACE_LOG + ".1")
+                except Exception:
+                    pass
             with open(TRACE_LOG, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except Exception:
@@ -232,7 +271,7 @@ def load_settings():
     settings = {
         "llm_base_url": api.get("base_url", "https://api.deepseek.com/v1"),
         "llm_model": api.get("model_name", "deepseek-v4-flash"),
-        "llm_api_key": api.get("api_key", ""),
+        "llm_api_key": _load_secret_key() or api.get("api_key", ""),
         "thinking_mode": str(api.get("thinking_mode", "auto")),
         "skip_model_check": str(api.get("skip_model_check", False)).lower(),
         "max_depth": str(agent.get("max_depth", 2)),
@@ -261,7 +300,8 @@ def save_settings(settings, appearance):
         if "llm_model" in settings:
             api["model_name"] = str(settings["llm_model"]).strip()
         if "llm_api_key" in settings:
-            api["api_key"] = str(settings["llm_api_key"]).strip()
+            _store_secret_key(str(settings["llm_api_key"]).strip())
+            api["api_key"] = ""   # 明文不再写回 config.json，改存独立密钥文件 KEY_FILE
         if "thinking_mode" in settings:
             api["thinking_mode"] = str(settings["thinking_mode"]).strip() or "auto"
         if "skip_model_check" in settings:
@@ -443,21 +483,66 @@ _LOG_TAGS = ("queen", "sys", "worker", "warn")  # 必须与 UI 的 .log-tag CSS 
 
 _RE_WORKER_DONE = re.compile(r"^\[工蚁\]\s+(.+?)\s+完成")
 _WARN_HINTS = ("错误", "异常", "失败", "警告", "拦截", "超时", "中断", "💥", "！！！", "blocked", "timeout", "Traceback")
+_RE_TOOL_CALL = re.compile(r"===>\s*(\w+)")
+_RE_TOOL_RET = re.compile(r"<===\s*工具返回")
+_RE_ANTNEST_HEAD = re.compile(r"\[\*\]\s*ANTNEST")
+_RE_WORKER_HEAD = re.compile(r"\[工蚁\]")
+_RE_ANSI = re.compile(r"\033\[[0-9;]*m")
+_RE_STREAM_NOISE = re.compile(
+    r"^\s*$|"
+    r"\[CLS\]|\[SEP\]|\[PAD\]|\[UNK\]|<\|.*?\|>|``|"  # tokenizer fragments
+    r"<ref>.*?</ref>|<<.*?>>|"  # XML-like tags from thinking
+    r"^[\u2580-\u259f]+$"  # block characters (progress bars)
+)
 
 
 def classify_line(line):
+    """分类日志行，返回 (tag, display_text) 或 None（表示应跳过）。"""
+    if not isinstance(line, str):
+        return None
     s = line.strip()
     if not s:
         return None
+    # 先去掉 ANSI 转义序列
+    s = _RE_ANSI.sub("", s)
+    if not s.strip():
+        return None
+    # 过滤流式输出中的噪声 token
+    if _RE_STREAM_NOISE.match(s):
+        return None
+    # 工蚁输出
+    if _RE_WORKER_HEAD.match(s):
+        return "worker"
+    # 工蚁完成摘要
+    m = _RE_WORKER_DONE.search(s)
+    if m:
+        return "worker"
+    # 蚁后提示
+    if _RE_ANTNEST_HEAD.match(s):
+        return "queen"
+    # 工具调用标记
+    if _RE_TOOL_CALL.match(s):
+        return "sys"
+    # 工具返回标记
+    if _RE_TOOL_RET.match(s):
+        return "sys"
+    # 用户输入
+    if s.startswith("[-] You"):
+        return "queen"
+    # 操作摘要关键词
     if any(h in s for h in _WARN_HINTS):
         return "warn"
-    if s.startswith("[工蚁]"):
-        return "worker"
-    if s.startswith("[*] ANTNEST"):
-        return "queen"
-    if s.startswith("===>") or s.startswith("<===") or s.startswith("[-] You"):
+    # 以 [开头的结构化日志（如 [工蚁]、[!]、[S1] 等）
+    if s.startswith("[") and "]" in s[:20]:
         return "sys"
-    return "sys"
+    # 含路径、文件操作的行（view_file、write_file 等工具输出）
+    if re.search(r"""path|view|write|grep|replace|list_dir|spawn_clone""", s, re.I):
+        return "sys"
+    # 其他：过滤纯 JSON/结构化输出（通常是工具返回的 JSON）
+    if s.startswith("{") and s.endswith("}"):
+        return None
+    # 最终兜底：如果不是已知的有意义操作，不显示
+    return None
 
 
 class StdoutTap(io.TextIOBase):
@@ -511,6 +596,57 @@ class StdoutTap(io.TextIOBase):
 
     def writable(self):
         return True
+
+
+# ==================================================================== S6 命令分类
+_CMD_PATTERNS = [
+    (r"Get-ChildItem", re.I, None, "列出目录"),
+    (r"Get-Content", re.I, None, "读取文件"),
+    (r"Set-Content|Out-File|Add-Content", re.I, None, "写入文件"),
+    (r"python(?:\.exe)?\s+", re.I, None, "执行 Python"),
+    (r"git\s+", re.I, None, None),
+    (r"npm\s+", re.I, None, None),
+    (r"docker\s+", re.I, None, None),
+    (r"pytest|unittest|go test|cargo test", re.I, None, "运行测试"),
+    (r"make|cmake|cargo build|go build|mvn|gradle", re.I, None, "构建项目"),
+    (r"pip\s+", re.I, None, None),
+    (r"Write-Output|echo\s+", re.I, None, "输出内容"),
+]
+_GIT_SUB_MAP = {
+    "add": "暂存文件", "commit": "提交变更", "push": "推送代码",
+    "pull": "拉取代码", "clone": "克隆仓库", "checkout": "切换分支",
+    "merge": "合并分支", "status": "查看状态", "diff": "查看差异",
+    "log": "查看日志", "branch": "管理分支",
+}
+
+
+def _classify_command(command):
+    """从原始 shell 命令中提取人类可读的操作描述。"""
+    cmd = (command or "").strip()
+    if not cmd:
+        return "执行命令"
+    for pat, flags, groups, fallback in _CMD_PATTERNS:
+        if re.search(pat, cmd, flags):
+            if pat == r"git\s+":
+                m = re.search(r"git\s+(\w+)", cmd, re.I)
+                if m:
+                    sub = m.group(1).lower()
+                    return f"Git {_GIT_SUB_MAP.get(sub, sub)}"
+                return fallback or "Git 操作"
+            if fallback:
+                return fallback
+            # pip install xxx
+            if pat == r"pip\s+":
+                m = re.search(r"pip\s+install\s+(\S+)", cmd, re.I)
+                if m:
+                    return f"安装依赖：{m.group(1)}"
+                m = re.search(r"pip\s+(\w+)", cmd, re.I)
+                if m:
+                    return f"pip {m.group(1)}"
+                return "pip 操作"
+            return fallback or "执行命令"
+    # 兜底：取前40字
+    return cmd[:40].replace("\n", " ") + ("…" if len(cmd) > 40 else "")
 
 
 # ==================================================================== S6 工蚁结果解析
@@ -707,9 +843,10 @@ class AntNestCore:
 
         def wrapped_spawn(command="", timeout=300, label="", **kw):
             wid = self._next_wid()
-            first = (str(command).strip().splitlines() or [""])[0]
-            title = (str(label).strip() or first)[:60] or f"子任务 {wid}"
-            name = str(label).strip() or f"工蚁-{wid}"
+            # 子任务：给 LLM 看的操作描述（优先用 label，否则自动分类命令）
+            title = (str(label).strip() or _classify_command(command))[:80]
+            # 工蚁：给人看的执行动作描述
+            name = (str(label).strip() or _classify_command(command) + f" (工蚁-{wid})")[:60]
             trace("S6", "info", f"派发 #{wid} {name} :: {title}")
             self.emit("worker", id=wid, name=name, status="run",
                       task=title, note="隔离目录已建，执行中")
@@ -724,10 +861,17 @@ class AntNestCore:
                 self.emit("subtask", id=wid, title=title, worker=name, status="fail", msg=f"异常：{e}")
                 raise
             status, note = summarize_clone_result(result)
+            artifacts = []
+            try:
+                d = json.loads(result)
+                if isinstance(d, dict):
+                    artifacts = d.get("artifacts") or []
+            except Exception:
+                pass
             cost = round(time.time() - t0, 1)
             trace("S6", "info", f"#{wid} 归巢 status={status} {cost}s")
             self.emit("worker", id=wid, name=name, status=status, task=title,
-                      note=f"{note}（{cost}s）")
+                      note=f"{note}（{cost}s）", artifacts=artifacts)
             self.emit("subtask", id=wid, title=title, worker=name, status=status, msg=note)
             return result
 
@@ -898,7 +1042,17 @@ class AntNestCore:
             self.emit("stream", phase="start", text="")
 
             old_out = sys.stdout
-            sys.stdout = StdoutTap(old_out, lambda ln: self.log(classify_line(ln) or "sys", ln))
+            def _route_line(ln):
+                # 工具调用/返回标记 → 驱动 UI 状态条（只解析输出行，不改工具执行逻辑）
+                m = _RE_TOOL_CALL.match(ln)
+                if m:
+                    args = ln.split(" ", 1)[1].strip()[:60] if " " in ln else ""
+                    self.emit("tool", state="start", name=m.group(1), args=args)
+                elif _RE_TOOL_RET.search(ln):
+                    self.emit("tool", state="end", name="")
+                self.log(classify_line(ln) or "sys", ln)
+
+            sys.stdout = StdoutTap(old_out, _route_line)
             try:
                 m.agent_single_loop()
             finally:

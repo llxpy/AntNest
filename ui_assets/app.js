@@ -20,6 +20,12 @@ function scrollChat(){
   if(b) b.scrollTop=b.scrollHeight;
 }
 var streamBubbleEl=null;
+var QUEEN_AVATAR_HTML='<span class="avatar queen-avatar">'
+  +'<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+  +'<circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/>'
+  +'<ellipse cx="12" cy="18" rx="3.6" ry="4.4"/>'
+  +'<path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
+  +'</svg></span>';
 function startStreamBubble(){
   var old=document.getElementById("stream-bubble");
   if(old) old.remove();
@@ -28,16 +34,18 @@ function startStreamBubble(){
   streamBubbleEl=document.createElement("div");
   streamBubbleEl.className="bubble queen streaming";
   streamBubbleEl.id="stream-bubble";
-  streamBubbleEl.innerHTML=
-    '<details class="think-block" id="stream-think-wrap" style="display:none">'
-    +'<summary>深度思考</summary><div class="think-body" id="stream-think"></div></details>'
-    +'<div class="bubble-text" id="stream-text"></div>';
+  streamBubbleEl.innerHTML=QUEEN_AVATAR_HTML
+    +'<div class="bubble-main">'
+    +'<div class="think-block" id="stream-think-wrap" style="display:none">'
+    +'<div class="think-title">深度思考</div><div class="think-body" id="stream-think"></div></div>'
+    +'<div class="bubble-text" id="stream-text"></div>'
+    +'</div>';
   box.appendChild(streamBubbleEl);
   scrollChat();
 }
 function ensureStreamThink(){
   var w=document.getElementById("stream-think-wrap");
-  if(w){ w.style.display=""; w.open=true; }
+  if(w){ w.style.display=""; }
 }
 function appendStreamThink(t){
   ensureStreamThink();
@@ -195,6 +203,11 @@ function hideUpdateBanner(){
 function openRelease(){
   if(_updateUrl) phwCall("open_release",{url:_updateUrl});
 }
+function checkForUpdate(){
+  var btn=document.getElementById("btn-check-update");
+  if(btn){btn.textContent="检查中..."; btn.disabled=true;}
+  phwCall("check_update",{});
+}
 function onSend(){
   var i=document.getElementById("chat-input");
   if(!i){ console.warn("[onSend] 找不到 #chat-input"); return; }
@@ -239,6 +252,44 @@ document.addEventListener("click", function(e){
 });
 function toggleSettings(){var m=document.querySelector("#settings-modal"); if(m)m.classList.toggle("show");}
 function closeSettings(){var m=document.querySelector("#settings-modal"); if(m)m.classList.remove("show");}
+/* ===== 对话记录 ===== */
+function openSessionsModal(){
+  var m=document.querySelector("#sessions-modal"); if(!m) return;
+  m.classList.add("show");
+  refreshSessions();
+}
+function closeSessionsModal(){var m=document.querySelector("#sessions-modal"); if(m)m.classList.remove("show");}
+function refreshSessions(){ phwCall("sessions_list",{}); }
+function setSessionsHint(t){var h=document.getElementById("sessions-hint"); if(h)h.textContent=t||"";}
+function fmtTime(ts){
+  try{
+    var d=new Date(ts*1000), p=function(n){return (n<10?"0":"")+n;};
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());
+  }catch(e){ return ""; }
+}
+function renderSessions(list){
+  var box=document.getElementById("sessions-list"); if(!box) return;
+  setSessionsHint("");
+  if(!list || !list.length){ box.innerHTML='<div class="muted" style="padding:20px 4px;text-align:center">还没有历史会话，发送第一条消息后会自动保存。</div>'; return; }
+  box.innerHTML=list.map(function(s){
+    var id=escHtml(s.id), time=fmtTime(s.time), prev=escHtml(s.preview||"");
+    return '<div class="session-item">'
+      +'<div class="session-info" onclick="loadSession(\''+id+'\')" title="点击恢复该会话">'
+      +'<div class="session-preview">'+prev+'</div>'
+      +'<div class="session-meta">'+time+' · '+s.count+' 条消息 · '+s.size_kb+' KB</div>'
+      +'</div>'
+      +'<button class="session-del" onclick="deleteSession(\''+id+'\')" title="删除该会话">×</button>'
+      +'</div>';
+  }).join("");
+}
+function loadSession(id){ if(!id) return; phwCall("session_load",{id:id}); }
+function deleteSession(id){
+  if(!id) return;
+  if(!confirm("确定删除这个会话吗？删除后不可恢复。")) return;
+  phwCall("session_delete",{id:id});
+}
+function newSession(){ phwCall("session_new",{}); }
+/* ===== 对话记录 END ===== */
 function openSkillsModal(){
   var m=document.querySelector("#skills-modal"); if(m)m.classList.add("show");
   refreshSkills();

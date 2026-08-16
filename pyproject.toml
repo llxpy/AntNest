@@ -1,6 +1,6 @@
 [project]
 name = "antnest"
-version = "1.2.1"
+version = "1.2.2"
 description = "AntNest - an AI coding agent with a queen/worker (ant) architecture and a desktop UI"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,6 +25,7 @@ py-modules = [
   "code_tools",
   "skills_loader",
   "mcp_client",
+  "memory_retrieval",
   "antnest_clone_worker",
   "antnest_session",
   "ui_render",

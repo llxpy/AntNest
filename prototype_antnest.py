@@ -128,9 +128,71 @@ def _version_gt(a, b):
     return _version_tuple(a) > _version_tuple(b)
 
 
-def check_update():
-    """后台检查 GitHub Release 是否有新版本；有则弹提示。失败/离线/限流/无新版均静默。"""
-    time.sleep(4)  # 等窗口真正就绪，避免 run_js 在窗口创建前被丢弃
+def _classify_command(command):
+    """从原始 shell 命令中提取人类可读的操作描述。"""
+    cmd = (command or "").strip()
+    if not cmd:
+        return "执行命令"
+    c = cmd.lower()
+    # PowerShell 文件操作
+    if re.search(r"Get-ChildItem", cmd, re.I):
+        m = re.search(r"Get-ChildItem\s+['\"]?([^'\"\s]+)", cmd, re.I)
+        return f"列出目录：{m.group(1)}" if m else "列出目录"
+    if re.search(r"Get-Content", cmd, re.I):
+        m = re.search(r"Get-Content\s+['\"]?([^'\"\s]+)", cmd, re.I)
+        return f"读取文件：{m.group(1)}" if m else "读取文件"
+    if re.search(r"Set-Content|Out-File|Add-Content", cmd, re.I):
+        m = re.search(r"(?:Set-Content|Out-File|Add-Content)\s+['\"]?([^'\"\s]+)", cmd, re.I)
+        return f"写入文件：{m.group(1)}" if m else "写入文件"
+    # Python
+    if re.search(r"python\s+", c) or re.search(r"python\.exe\s+", c):
+        m = re.search(r"python(?:\.exe)?\s+(?:-\S+\s+)*['\"]?([^'\"\s]+\.py)", c)
+        return f"执行 Python：{m.group(1)}" if m else "执行 Python 脚本"
+    # Git
+    if re.search(r"git\s+", c):
+        m = re.search(r"git\s+(\w+)", c)
+        if m:
+            sub = m.group(1)
+            desc_map = {
+                "add": "暂存文件", "commit": "提交变更", "push": "推送代码",
+                "pull": "拉取代码", "clone": "克隆仓库", "checkout": "切换分支",
+                "merge": "合并分支", "status": "查看状态", "diff": "查看差异",
+                "log": "查看日志", "branch": "管理分支", "fetch": "获取远程更新",
+                "stash": "暂存工作", "reset": "重置变更",
+            }
+            return f"Git {desc_map.get(sub, sub)}"
+        return "执行 Git 操作"
+    # npm / node
+    if re.search(r"npm\s+", c):
+        m = re.search(r"npm\s+(\w+)", c)
+        return f"npm {m.group(1)}" if m else "执行 npm"
+    # docker
+    if re.search(r"docker\s+", c):
+        m = re.search(r"docker\s+(\w+)", c)
+        return f"Docker {m.group(1)}" if m else "执行 Docker 操作"
+    # 测试/构建
+    if re.search(r"pytest|unittest|go test|cargo test", c):
+        return "运行测试"
+    if re.search(r"make|cmake|cargo build|go build|mvn|gradle", c):
+        return "构建项目"
+    # pip
+    if re.search(r"pip\s+", c):
+        m = re.search(r"pip\s+(\w+)\s+(\S+)", c)
+        if m and m.group(1) == "install":
+            return f"安装依赖：{m.group(2)}"
+        return f"pip {m.group(1)}" if m else "执行 pip"
+    # 通用 shell
+    if re.search(r"Write-Output|echo\s+", cmd, re.I):
+        return "输出内容"
+    # 截取前40字作为兜底描述
+    return cmd[:40].replace("\n", " ") + ("…" if len(cmd) > 40 else "")
+
+
+def check_update(silent=True):
+    """后台检查 GitHub Release 是否有新版本；有则弹提示。失败/离线/限流/无新版均静默。
+    silent=False 时为手动点击「检查更新」按钮，会显示检查结果。"""
+    if silent:
+        time.sleep(4)  # 等窗口真正就绪，避免 run_js 在窗口创建前被丢弃
     try:
         _url = "https://api.github.com/repos/llxpy/AntNest/releases/latest"
         _req = urllib.request.Request(_url, headers={"User-Agent": "AntNest"})
@@ -142,8 +204,25 @@ def check_update():
             app.run_js(
                 f"showUpdateBanner({json.dumps(_tag)}, {json.dumps(_html)}, {json.dumps(APP_VERSION)});"
             )
+        elif not silent and _tag:
+            app.run_js(
+                f"(function(){{ var btn=document.getElementById('btn-check-update');"
+                f"if(btn){{btn.textContent='已是最新';btn.disabled=false;}}"
+                f"setTimeout(function(){{if(btn)btn.textContent='⬆ 检查更新';}},2000);}})();"
+            )
+        elif not silent:
+            app.run_js(
+                "(function(){{ var btn=document.getElementById('btn-check-update');"
+                "if(btn){btn.textContent='检查失败';btn.disabled=false;}"
+                "setTimeout(function(){if(btn)btn.textContent='⬆ 检查更新';},2000);}})();"
+            )
     except Exception:
-        pass
+        if not silent:
+            app.run_js(
+                "(function(){{ var btn=document.getElementById('btn-check-update');"
+                "if(btn){btn.textContent='网络异常';btn.disabled=false;}"
+                "setTimeout(function(){if(btn)btn.textContent='⬆ 检查更新';},2000);}})();"
+            )
 
 # ------------------------------------------------------------------ 设计 token
 app.css(load_css())
@@ -151,7 +230,8 @@ app.css(load_css())
 # ------------------------------------------------------------------ 运行时状态
 STATE = {"task": "尚未下达任务"}
 SUBTASKS = []          # [{id, title, worker, status, msg}]
-WORKERS = []           # [{id, name, status, task, note}]
+WORKERS = []           # [{id, name, status, task, note, artifacts}]
+_SESSION_ID = "default"  # 当前会话 id（对话记录用；默认与旧版单会话兼容）
 CHATS = []             # [{"role": "user"|"queen", "text": str, "reasoning": str}]
 _STREAM_BUF = {"active": False, "text": "", "reasoning": ""}
 _LOG_DOM_COUNT = 0     # 已追加到 DOM 的日志条数（避免整页刷新打断选中）
@@ -161,6 +241,8 @@ SELECTED_SKILL = ""    # 聊天框左侧选中的 skill
 SELECTED_IMAGE = None  # {b64, mime} or None
 SKILLS_CACHE = []      # 缓存的 skills 列表
 MAX_LOGS = 500
+MAX_CHATS = 500           # 内存中保留的聊天条数上限
+MAX_CHATS_RENDER = 300    # DOM 渲染的聊天条数上限
 
 # 配置由 bridge 统一管理：
 #   LLM / agent 参数 → config.json（AntNest 的嵌套结构，原样保留）
@@ -196,7 +278,8 @@ def _flush():
             if _STREAM_BUF.get("active"):
                 pass  # 流式进行中由 JS 增量更新，避免 innerHTML 全量替换
             else:
-                app.update("#chat-msgs", ui_render.render_chat(CHATS))
+                # 只渲染最近 MAX_CHATS_RENDER 条，防止长会话 DOM 无限膨胀导致卡死
+                app.update("#chat-msgs", ui_render.render_chat(CHATS[-MAX_CHATS_RENDER:]))
                 app.run_js("scrollChat();")
         if "log" in parts:
             _append_logs_to_dom()
@@ -241,9 +324,15 @@ def _set_pill(cls, text):
 
 
 def _push_log(tag, text):
+    global _LOG_DOM_COUNT
     LOGS.append((time.strftime("%H:%M:%S"), tag, text))
     if len(LOGS) > MAX_LOGS:
         del LOGS[: len(LOGS) - MAX_LOGS]
+        if _LOG_DOM_COUNT > 0:
+            # 最旧的条数被裁掉后 DOM 与列表错位（新日志会永远不显示），
+            # 清空 DOM，由下一次 flush 全量重建
+            _LOG_DOM_COUNT = 0
+            app.run_js("var l=document.querySelector('#log'); if(l) l.innerHTML='';")
 
 
 def _upsert(seq, item, key="id"):
@@ -254,12 +343,37 @@ def _upsert(seq, item, key="id"):
     seq.append(item)
 
 
-def _set_thinking(text=""):
-    cls = "thinking-hint" + (" show" if text else "")
+def _set_agent_status(text=""):
+    """更新 Agent 状态条：有文本时显示，空字符串时隐藏。"""
+    active = "active" if text else ""
     app.run_js(
-        "var h=document.querySelector('#thinking-hint');"
-        f"if(h){{h.className={json.dumps(cls)}; h.querySelector('.txt').textContent={json.dumps(text)};}}"
+        "var s=document.querySelector('#agent-status');"
+        "var t=document.querySelector('#agent-status-text');"
+        f"if(s) s.className='agent-status '+( {json.dumps(active)} );"
+        f"if(t) t.textContent={json.dumps(text)};"
     )
+
+
+def _auto_save_session():
+    """每轮对话结束后自动保存到当前会话文件。"""
+    m = core.mod
+    if not m or not getattr(m, "messages", None):
+        bridge.trace("UI", "warn", "自动保存跳过：core.mod 或 messages 为空")
+        return
+    try:
+        m.save_session(m.messages, m.PROJECT_DIR, m.SESSION_DIR, _SESSION_ID)
+        # 验证文件确实写入了
+        import antnest_session as _sm
+        sf = _sm.get_session_file(m.PROJECT_DIR, m.SESSION_DIR, _SESSION_ID)
+        if os.path.exists(sf):
+            sz = os.path.getsize(sf)
+            bridge.trace("UI", "info", f"自动保存 [{_SESSION_ID}] 成功，{sz} 字节")
+        else:
+            bridge.trace("UI", "warn", f"自动保存 [{_SESSION_ID}] 调用完成但文件不存在: {sf}")
+    except Exception as e:
+        bridge.trace("UI", "warn", f"自动保存 [{_SESSION_ID}] 失败：{e}")
+        _push_log("warn", f"自动保存会话失败：{e}")
+        _mark("log")
 
 
 def _apply_settings_patch(patch):
@@ -316,12 +430,14 @@ def on_core_event(kind, p):
                 _STREAM_BUF["reasoning"] = ""
                 app.run_js("startStreamBubble();")
             elif phase == "reasoning_start":
+                _set_agent_status("蚁后正在思考…")
                 app.run_js("ensureStreamThink();")
             elif phase == "reasoning":
                 chunk = p.get("text", "")
                 _STREAM_BUF["reasoning"] += chunk
                 app.run_js(f"appendStreamThink({json.dumps(chunk)});")
             elif phase == "reasoning_end":
+                _set_agent_status("蚁后正在组织回复…")
                 app.run_js("closeStreamThink();")
             elif phase == "content":
                 chunk = p.get("text", "")
@@ -331,9 +447,31 @@ def on_core_event(kind, p):
                 _STREAM_BUF["active"] = False
                 app.run_js("finalizeStreamBubble();")
                 _mark("chat")
+            elif phase == "usage":
+                try:
+                    u = json.loads(p.get("text") or "{}")
+                    total = u.get("total_tokens", 0)
+                    app.run_js(
+                        "var e=document.getElementById('token-usage');"
+                        f"if(e) e.textContent='⚡ {int(total):,} tokens';"
+                    )
+                except Exception:
+                    pass
 
         elif kind == "thinking":
-            pass  # 深度思考改在左侧聊天气泡内展示
+            # 深度思考既在聊天气泡内联展示，也在状态条给出实时反馈
+            _set_agent_status("蚁后正在思考…")
+
+        elif kind == "tool":
+            st = p.get("state")
+            name = p.get("name", "")
+            if st == "start":
+                args = (p.get("args") or "").strip()
+                _set_agent_status(f"正在调用 {name} {args}".rstrip())
+            elif st == "error":
+                _set_agent_status(f"{name} 出错了，稍等…")
+            else:
+                _set_agent_status("蚁后正在处理结果…")
 
         elif kind == "skills":
             SKILLS_CACHE = p.get("list", [])
@@ -347,6 +485,7 @@ def on_core_event(kind, p):
             _upsert(WORKERS, {
                 "id": p["id"], "name": p.get("name", ""), "status": p.get("status", "run"),
                 "task": p.get("task", ""), "note": p.get("note", ""),
+                "artifacts": p.get("artifacts", []) or [],
             })
             _mark("workers")
 
@@ -403,11 +542,16 @@ def on_core_event(kind, p):
                 SUBTASKS.clear()
                 WORKERS.clear()
                 _set_pill("thinking", "thinking")
+                _set_agent_status("蚁后开始执行任务…")
                 app.run_js("setStopEnabled(true);")
                 _mark("subtasks", "workers")
             else:
                 _set_pill("ok", "就绪")
-                _set_thinking("")
+                _set_agent_status("")
+                _auto_save_session()  # 每轮结束自动存会话记录
+                if len(CHATS) > MAX_CHATS:
+                    # 内存上限：只保留最近 MAX_CHATS 条（渲染只取最近 MAX_CHATS_RENDER 条）
+                    del CHATS[: len(CHATS) - MAX_CHATS]
                 app.run_js("setStopEnabled(false);")
                 _flush()  # 收尾强制刷一次，避免最后一批事件卡在 debounce 里
 
@@ -526,11 +670,20 @@ def _workers_html():
     for w in WORKERS:
         status = w.get("status", "run")
         pill = ui.span(cls=f"pill {status}")[_STATUS_TEXT.get(status, status)]
+        art = w.get("artifacts") or []
+        art_html = ""
+        if art:
+            items = "".join(
+                f'<span class="art-item" title="{_esc(a)}">{_esc(a.split("/")[-1])}</span>'
+                for a in art
+            )
+            art_html = f'<div class="art-list">📦 {items}</div>'
         out.append(
             ui.div(cls="worker-card")[
                 ui.div(cls="top")[ui.div(cls="name")[w.get("name", "")], pill],
                 ui.div(cls="meta")[f"当前：{w.get('task', '')}"],
                 ui.div(cls="meta")[f"↳ {w.get('note', '')}"],
+                ui.raw(art_html),
             ].render()
         )
     return "".join(out)
@@ -742,7 +895,7 @@ def _settings_modal():
                list_id="model-list-options"),
         ui.raw('<datalist id="model-list-options"></datalist>'),
         _field("llm_api_key", "API Key", SETTINGS["llm_api_key"], full=True, code=True,
-               hint="仅保存在本机 config.json", input_type="password"),
+               hint="仅保存在本机（独立密钥文件，不进 config.json）", input_type="password"),
         _field("thinking_mode", "Thinking 模式", SETTINGS.get("thinking_mode", "auto"), code=True,
                hint="auto=按提供商自动 / on=强制 / off=关闭（MiniMax 建议 off 或 auto）"),
         _toggle("skip_model_check", "跳过 /models 检测", SETTINGS.get("skip_model_check", "false"),
@@ -909,6 +1062,124 @@ def on_reset(data):
     _flush()
 
 
+@app.route("sessions_list")
+def on_sessions_list(data):
+    """对话记录：列出当前项目的所有历史会话。"""
+    m = core.mod
+    if not m:
+        bridge.trace("UI", "warn", "sessions_list 被调用但 core.mod 为空（核心未加载）")
+        app.run_js("setSessionsHint('核心尚未加载，请先发送一条消息激活蚁后。');")
+        app.run_js("renderSessions([]);")
+        return
+    try:
+        lst = m.list_project_sessions()
+        bridge.trace("UI", "info", f"sessions_list 返回 {len(lst)} 个会话")
+        app.run_js(f"renderSessions({json.dumps(lst)});")
+    except Exception as e:
+        bridge.trace("UI", "warn", f"加载会话列表失败：{e}")
+        app.run_js(f"setSessionsHint({json.dumps('列表加载失败：' + str(e))});")
+
+
+def _chats_from_messages(msgs):
+    """把 messages 转换成 CHATS 结构（供重渲染）。"""
+    chats = []
+    for msg in msgs or []:
+        if not isinstance(msg, dict) or msg.get("role") not in ("user", "assistant"):
+            continue
+        chats.append({
+            "role": "user" if msg["role"] == "user" else "queen",
+            "text": msg.get("content") or "",
+            "reasoning": msg.get("reasoning_content") or "",
+        })
+    return chats
+
+
+def _load_session_into_core(sid):
+    """读取会话文件并替换 core.messages，成功返回 True。"""
+    m = core.mod
+    if not m:
+        return False
+    try:
+        msgs = m.load_session(session_id=sid)
+        if not msgs:
+            return False
+        m.messages = msgs
+        return True
+    except Exception as e:
+        bridge.trace("UI", "warn", f"加载会话失败：{e}")
+        return False
+
+
+@app.route("session_load")
+def on_session_load(data):
+    """加载指定会话并重渲染聊天区。"""
+    sid = (data or {}).get("id", "")
+    if not sid:
+        return
+    if core.busy:
+        _push_log("warn", "蚁后正在执行，请等本轮结束再切换会话")
+        _mark("log")
+        return
+    if not _load_session_into_core(sid):
+        app.run_js(f"setSessionsHint({json.dumps('会话加载失败或不存在')});")
+        return
+    global _SESSION_ID
+    _SESSION_ID = sid
+    CHATS.clear()
+    CHATS.extend(_chats_from_messages(core.mod.messages))
+    if not CHATS:
+        CHATS.append({"role": "queen", "text": "已恢复历史会话（无消息）。", "reasoning": ""})
+    STATE["task"] = "（已加载历史会话）"
+    SUBTASKS.clear()
+    WORKERS.clear()
+    _mark("chat", "subtasks", "workers", "task")
+    app.run_js("closeSessionsModal(); scrollChat();")
+    _flush()
+
+
+@app.route("session_delete")
+def on_session_delete(data):
+    """删除指定会话。"""
+    sid = (data or {}).get("id", "")
+    if not sid:
+        return
+    m = core.mod
+    if m:
+        m.delete_session(m.PROJECT_DIR, m.SESSION_DIR, sid)
+    app.run_js("refreshSessions();")
+
+
+@app.route("session_new")
+def on_session_new(data):
+    """新建会话：清空当前上下文并切换到新会话 id。"""
+    m = core.mod
+    if not m:
+        return
+    global _SESSION_ID
+    _SESSION_ID = time.strftime("%Y%m%d-%H%M%S")
+    try:
+        from pathlib import Path as _P
+        nest = _P(m.NEST_FILE).read_text(encoding="utf-8") if _P(m.NEST_FILE).exists() else ""
+        hints = _P(m.HINT_FILE).read_text(encoding="utf-8") if _P(m.HINT_FILE).exists() else ""
+        m.messages = [{
+            "role": "system",
+            "content": m.SYSTEM_PROMPT.format(
+                nest_md=nest or "无", hints=hints or "无", env_info=m.ENV_INFO
+            ),
+        }]
+    except Exception as e:
+        bridge.trace("UI", "warn", f"新建会话失败：{e}")
+        return
+    CHATS.clear()
+    CHATS.append({"role": "queen", "text": "已新建会话，蚁后重新待命。", "reasoning": ""})
+    STATE["task"] = "尚未下达任务"
+    SUBTASKS.clear()
+    WORKERS.clear()
+    _mark("chat", "subtasks", "workers", "task")
+    app.run_js("closeSessionsModal(); scrollChat();")
+    _flush()
+
+
 @app.route("toggle_settings")
 def on_toggle_settings(data):
     app.run_js("var m=document.querySelector('#settings-modal'); if(m) m.classList.toggle('show');")
@@ -957,6 +1228,12 @@ def on_open_release(data):
     url = (data or {}).get("url", "")
     if url:
         webbrowser.open(url)
+
+
+@app.route("check_update")
+def on_check_update(data):
+    """手动检查更新：重启后台线程，结果通过弹窗告知。"""
+    threading.Thread(target=lambda: check_update(silent=False), daemon=True).start()
 
 
 @app.route("open_sponsor")
@@ -1149,7 +1426,10 @@ app.body(
                '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:4px">'
                '<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>'
                '</svg>赞助作者喵~~</button>'),
+        ui.raw('<button class="btn ghost" onclick="checkForUpdate()" id="btn-check-update">⬆ 检查更新</button>'),
+        ui.raw('<button class="btn ghost" onclick="openSessionsModal()" title="查看/恢复历史对话">🕘 对话记录</button>'),
         ui.raw('<button class="btn ghost" onclick="toggleSettings()">⚙ 设置</button>'),
+        ui.span(cls="muted token-usage", id="token-usage", title="本会话 token 用量")[""],
         ui.span(cls="muted")["蚁后"],
         ui.span(cls="pill idle", id="status-pill")["待命"],
     ],
@@ -1166,8 +1446,9 @@ app.body(
                     ),
                 ],
                 ui.div(cls="chat-msgs", id="chat-msgs")[ui.raw(render_chat())],
-                ui.div(cls="thinking-hint", id="thinking-hint")[
-                    ui.raw('<span class="dot"></span><span class="txt"></span>')
+                ui.div(cls="agent-status", id="agent-status")[
+                    ui.raw('<span class="pulse"></span>'),
+                    ui.raw('<span class="status-text" id="agent-status-text"></span>'),
                 ],
                 ui.div(cls="chat-input-row")[
                     ui.raw(f'<select class="skill-select" id="skill-select" onchange="onSkillChange(this.value)" title="选择要附加的 Skill">{_skill_options()}</select>'),
@@ -1230,6 +1511,19 @@ app.body(
         '<h2>赞助作者喵~~</h2>'
         '<p class="muted" style="font-size:13px; margin:4px 0 0">感谢支持，任选一种方式扫码：</p>'
         '<div id="sponsor-images" class="qr-grid"></div>'
+        '</div></div>'
+    ),
+    # 对话记录弹窗
+    ui.raw(
+        '<div id="sessions-modal" class="sponsor-modal" onclick="if(event.target===this) closeSessionsModal()">'
+        '<button type="button" class="modal-close global" onclick="closeSessionsModal()" title="关闭">×</button>'
+        '<div class="modal-card sessions-card">'
+        '<h2>🕘 对话记录</h2>'
+        '<div class="sessions-toolbar">'
+        '<button class="btn" onclick="newSession()">＋ 新建会话</button>'
+        '<span class="muted" id="sessions-hint" style="font-size:12px"></span>'
+        '</div>'
+        '<div id="sessions-list" class="sessions-list"><div class="muted">加载中…</div></div>'
         '</div></div>'
     ),
 )

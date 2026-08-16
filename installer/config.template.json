@@ -2,7 +2,10 @@
   "api": {
     "base_url": "https://api.deepseek.com/v1",
     "model_name": "deepseek-chat",
-    "api_key": ""
+    "api_key": "",
+    "thinking_mode": "auto",
+    "skip_model_check": false,
+    "default_token_cap": 128000
   },
   "agent": {
     "max_depth": 2,

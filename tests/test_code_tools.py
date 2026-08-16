@@ -37,6 +37,24 @@ class CodeToolsTest(unittest.TestCase):
         self.assertIn("text.replace", ct.build_search_replace_script(p, "a", "b", False))
         self.assertIn("replace_all", ct.build_search_replace_script(p, "a", "b", True))
 
+    def test_build_scripts_compilable(self):
+        """生成的脚本必须能通过 compile() 语法验证（回归防护：修复单行复合语句 bug）"""
+        p = Path("E:/proj/foo.py")
+        cases = [
+            ("view_file", ct.build_view_file_script(p, 1, 10)),
+            ("list_dir", ct.build_list_dir_script(p.parent, 20)),
+            ("grep", ct.build_grep_script(p.parent, "foo", "*.py", 10)),
+            ("write_file", ct.build_write_file_script(p, "x=1")),
+            ("search_replace", ct.build_search_replace_script(p, "a", "b", False)),
+            ("search_replace_all", ct.build_search_replace_script(p, "a", "b", True)),
+        ]
+        for name, code in cases:
+            with self.subTest(name=name):
+                try:
+                    compile(code, f"<{name}>", "exec")
+                except SyntaxError as e:
+                    self.fail(f"{name} 生成的脚本语法错误: {e}")
+
     def test_worker_py_cmd_windows_base64(self):
         cmd = ct.worker_py_cmd('print("hello")', is_windows=True, python_exe="python")
         self.assertIn("base64", cmd)

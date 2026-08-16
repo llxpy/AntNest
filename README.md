@@ -211,7 +211,10 @@ cd installer
   "api": {
     "base_url": "LLM API 地址，必须以 /v1 结尾",
     "model_name": "模型名称，推荐使用 thinking 模型",
-    "api_key": "API 密钥"
+    "api_key": "API 密钥",
+    "thinking_mode": "thinking 模式：auto / on / off",
+    "skip_model_check": "是否跳过 /models 兼容检测（true/false）",
+    "default_token_cap": "默认 token 上下文上限（整数，如 128000）"
   },
   "agent": {
     "max_depth": 2,
@@ -227,6 +230,9 @@ cd installer
 | `api.base_url` | LLM API 地址 | `https://api.deepseek.com/v1` |
 | `api.model_name` | 模型名称 | `deepseek-chat` |
 | `api.api_key` | API 密钥 | 无（必填） |
+| `api.thinking_mode` | thinking 模式开关（`auto`/`on`/`off`） | `auto` |
+| `api.skip_model_check` | 跳过 `/models` 兼容检测（避免无网络/私有网关误报） | `false` |
+| `api.default_token_cap` | 无法探测上下文长度时的默认 token 上限 | `128000` |
 | `agent.max_depth` | 最大复制深度（≥此值降级直接执行） | `2` |
 | `agent.max_clones.0` | 蚁后最大派出的工蚁数 | `10` |
 | `agent.max_clones.1` | 工蚁最大派出的子工蚁数 | `5` |

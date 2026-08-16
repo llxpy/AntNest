@@ -24,6 +24,7 @@ from datetime import date
 import code_tools as ct
 import antnest_clone_worker
 import antnest_session as session_mod
+import memory_retrieval
 from api_compat import effective_temperature, resolve_api_profile, sanitize_messages_for_api
 
 # ====================== 路径解析 ======================
@@ -59,7 +60,21 @@ if os.path.exists(_config_path):
 _config_api = _config.get("api", {})
 ANT_BASE_URL = os.environ.get("ANT_BASE_URL") or _config_api.get("base_url", "https://api.deepseek.com/v1")
 ANT_MODEL_NAME = os.environ.get("ANT_MODEL_NAME") or _config_api.get("model_name", "deepseek-v4-flash")
-ANT_API_KEY = os.environ.get("ANT_API_KEY") or _config_api.get("api_key", "")
+
+
+def _load_secret_key() -> str:
+    """从独立密钥文件（config.json.key，权限 0600）读取 API Key，避免明文落在 config.json。"""
+    try:
+        kf = _config_path + ".key"
+        if os.path.exists(kf):
+            with open(kf, "r", encoding="utf-8") as _kf:
+                return _kf.read().strip()
+    except Exception:
+        pass
+    return ""
+
+
+ANT_API_KEY = os.environ.get("ANT_API_KEY") or _load_secret_key() or _config_api.get("api_key", "")
 
 if not ANT_API_KEY:
     print(f"错误：未配置 API Key。请在 config.json 中设置 api_key 或设置环境变量 ANT_API_KEY")
@@ -214,7 +229,7 @@ COMPACT_PANIC = False
 LAST_USAGE = None
 AGENT_CANCEL = False
 _ACTIVE_STREAM_RESP = None
-_ACTIVE_CLONE_PROC = None
+_ACTIVE_CLONE_PROCS = []  # 并行工蚁进程列表（原单值 _ACTIVE_CLONE_PROC 已废弃）
 
 # UI 流式回调（由 antnest_bridge 注入）：callable(phase, text)
 # phase: reasoning_start | reasoning | reasoning_end | content
@@ -230,8 +245,35 @@ def agent_reset_cancel():
     AGENT_CANCEL = False
 
 
+def _kill_process_tree(proc):
+    """杀死进程及其整棵子进程树，防止工蚁的命令子进程变孤儿堆积。
+
+    Windows 用 taskkill /T 按父子关系杀树；POSIX 用进程组（需 start_new_session）。
+    """
+    pid = getattr(proc, "pid", None)
+    if not pid:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        else:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:
+                proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 def agent_cancel():
-    """用户强行停止：中断流式 LLM 与正在运行的工蚁。"""
+    """用户强行停止：中断流式 LLM 与正在运行的所有工蚁。"""
     global AGENT_CANCEL
     AGENT_CANCEL = True
     resp = _ACTIVE_STREAM_RESP
@@ -240,12 +282,9 @@ def agent_cancel():
             resp.close()
         except Exception:
             pass
-    proc = _ACTIVE_CLONE_PROC
-    if proc is not None and proc.poll() is None:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+    for proc in list(_ACTIVE_CLONE_PROCS):
+        if proc is not None and proc.poll() is None:
+            _kill_process_tree(proc)
 
 
 def _stream_emit(phase, text=""):
@@ -303,36 +342,41 @@ def collect_env_info():
     ]
     results = []
     shell_cmds = cmds["Windows"] if IS_WINDOWS else cmds["Linux"]
-    for i, (label, cmd) in enumerate(zip(labels, shell_cmds)):
-        try:
-            r = subprocess.run(
-                [SHELL, SHELL_FLAG, cmd],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
-            )
-            output = r.stdout.strip()
-            if not output:
-                continue
-            if i == 2:
-                lines = output.splitlines()
-                total = len(lines)
-                kept, chars = [], 0
-                for line in lines:
-                    if len(kept) >= 100 or chars + len(line) + 1 > 2000:
-                        break
-                    kept.append(line)
-                    chars += len(line) + 1
-                output = "\n".join(kept)
-                hidden = total - len(kept)
-                if hidden > 0:
-                    output += f"\n...还有 {hidden} 个文件未显示"
-            results.append(f"{label}\n{output}")
-        except Exception:
-            pass
+    scratch = None
+    try:
+        scratch = tempfile.mkdtemp(prefix="antnest_env_")
+        for i, (label, cmd) in enumerate(zip(labels, shell_cmds)):
+            try:
+                argv = antnest_clone_worker.prepare_command_script(cmd, scratch)
+                r = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    timeout=8,
+                    shell=False,
+                    **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
+                )
+                output = antnest_clone_worker.decode_output(r.stdout).strip()
+                if not output:
+                    continue
+                if i == 2:
+                    lines = output.splitlines()
+                    total = len(lines)
+                    kept, chars = [], 0
+                    for line in lines:
+                        if len(kept) >= 100 or chars + len(line) + 1 > 2000:
+                            break
+                        kept.append(line)
+                        chars += len(line) + 1
+                    output = "\n".join(kept)
+                    hidden = total - len(kept)
+                    if hidden > 0:
+                        output += f"\n...还有 {hidden} 个文件未显示"
+                results.append(f"{label}\n{output}")
+            except Exception:
+                pass
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     today = date.today().strftime("%Y-%m-%d")
     return f"=== 今天日期 ===\n{today}\n\n" + ("\n\n".join(results) if results else "环境信息获取失败")
@@ -376,13 +420,21 @@ SYSTEM_PROMPT = f"""
 
 # 工具调用说明
 - spawn_clone：生成工蚁执行命令（改系统、跑构建、复杂 shell 必须用此工具）
+  - 工蚁执行环境已统一为 UTF-8（自动 chcp 65001 + 输出编码转换 + 自适应解码），命令输出中的中文不会再乱码，可以在命令中放心使用中文路径/内容
+  - 超长命令（超过环境变量限制）会自动写入脚本文件执行，无需担心长度限制
+  - 运行 Python 代码时：先用 write_file 写入 .py 脚本再执行 `python script.py`（中文与引号都会完整保留）；不要用 `python -c "..."` 内联方式——Windows PowerShell 5.1 会吞掉其中的引号导致语法错误，这是已知坑
 - view_file：派工蚁只读查看文件（分段、带行号）
 - list_dir：派工蚁只读列目录
 - grep_files：派工蚁在目录/文件中搜索文本（写代码前定位用）
 - write_file：派工蚁写入/覆盖文件（蚁后不亲自写盘）
 - search_replace：派工蚁精确替换文件中的一段文本（改代码首选，比 write_file 整文件覆盖更安全）
 - run_cli：仅在 clone 模式（depth>0）下可用
+- run_python：已不再作为蚁后工具暴露（避免蚁后主进程直接执行任意代码）；需要跑 Python 请走 run_cli 经工蚁隔离执行
+- web_fetch：抓取网页内容转为纯文本（查最新文档/资料用）
 - leave_memory_hints：记忆压缩时保留关键线索
+
+# 记忆检索
+每次思考前会依据你的最近问题自动检索 NEST.md 与 hints.md 中最相关的段落注入上下文，无需手动查找。
 
 # 固化的知识及规则（读取自 {NEST_FILE}）
 <knowledge_and_rules>
@@ -596,6 +648,45 @@ run_cli_schema = {
     },
 }
 
+run_python_schema = {
+    "type": "function",
+    "function": {
+        "name": "run_python",
+        "description": (
+            "直接解释执行 Python 代码（不经过 shell，中文与引号完整保留）。"
+            "适合数据处理、快速验证；复杂任务建议先用 write_file 写文件再执行。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "要执行的 Python 代码"},
+                "timeout": {
+                    "type": "integer", "default": 120, "description": "超时时间（秒）",
+                },
+            },
+            "required": ["code"],
+        },
+    },
+}
+
+web_fetch_schema = {
+    "type": "function",
+    "function": {
+        "name": "web_fetch",
+        "description": "抓取网页内容并转为纯文本（查文档、查资料用）。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "要抓取的完整 URL"},
+                "max_bytes": {
+                    "type": "integer", "default": 30000, "description": "最多返回的字符数",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+}
+
 memory_hints_schema = {
     "type": "function",
     "function": {
@@ -649,6 +740,29 @@ mcp_list_tools_schema = {
 }
 
 
+def _with_retrieved_memory(msgs):
+    """每轮 LLM 调用前，用最近的用户消息检索记忆，临时注入（不改原列表）。"""
+    try:
+        query = ""
+        for m in reversed(msgs):
+            if m.get("role") == "user" and isinstance(m.get("content"), str):
+                query = m["content"][:200]
+                break
+        if not query:
+            return msgs
+        hit = memory_retrieval.retrieve(
+            query, ((NEST_FILE, "NEST"), (HINT_FILE, "hints")), k=_MEMORY_TOP_K
+        )
+        if not hit:
+            return msgs
+        return msgs + [{
+            "role": "system",
+            "content": "《记忆检索》根据当前问题从记忆库检索到的相关内容（供参考）：\n" + hit,
+        }]
+    except Exception:
+        return msgs
+
+
 def get_queen_tools(compact_panic: bool = False) -> list:
     """蚁后可用工具列表（含可选 MCP）。"""
     if compact_panic:
@@ -661,6 +775,7 @@ def get_queen_tools(compact_panic: bool = False) -> list:
             grep_files_schema,
             write_file_schema,
             search_replace_schema,
+            web_fetch_schema,
         ]
     if MCP_ENABLED and MCP_HUB is not None:
         base.extend([mcp_call_schema, mcp_list_tools_schema])
@@ -688,6 +803,59 @@ def mcp_list_tools() -> str:
         return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
 # ====================== 工蚁生命周期 ======================
+# 资源上限常量（魔法数字统一命名，便于按需调整）
+_ARTIFACTS_MAX_KEEP = 50       # artifacts 目录保留上限
+_CLONE_POOL_MAX_KEEP = 20      # clone_pool 目录保留上限
+_RUN_PYTHON_OUTPUT_CAP = 2 * 1024 * 1024  # run_python 返回输出上限
+_MEMORY_TOP_K = 4              # BM25 记忆检索注入段落数
+_DUP_CALL_LIMIT = 3            # 相同工具+参数连续次数，超过即判定循环
+_DUP_RECENT_MAX = 10           # 重复检测保留的最近调用记录数
+_ARTIFACT_EXCLUDES = {
+    "AntNest.py", "antnest_clone_worker.py", "code_tools.py",
+    "antnest_session.py", "api_compat.py", "memory_retrieval.py",
+    "result.json", "clone.log", "command.txt", "ant_cmd.ps1", "ant_cmd.sh",
+}
+
+
+def collect_clone_artifacts(clone_dir: str, clone_id: str) -> list:
+    """把工蚁隔离目录中的产出文件归档到 .antnest/artifacts/<clone_id>/。
+
+    返回归档后的相对路径列表（相对项目目录，正斜杠）。只收用户文件，
+    脚本/日志/结果等内部文件一律排除。被 spawn_clone 在销毁目录前调用。
+    """
+    try:
+        artifacts_root = os.path.join(PROJECT_ANT_DIR, "artifacts", clone_id)
+        os.makedirs(artifacts_root, exist_ok=True)
+        # 保留上限：只留最近 50 个工蚁的产出，防止自检/长任务把磁盘撑满
+        _art_root = os.path.join(PROJECT_ANT_DIR, "artifacts")
+        try:
+            _dirs = [
+                os.path.join(_art_root, d) for d in os.listdir(_art_root)
+                if os.path.isdir(os.path.join(_art_root, d))
+            ]
+            if len(_dirs) > _ARTIFACTS_MAX_KEEP:
+                _dirs.sort(key=os.path.getmtime)
+                for _old in _dirs[: len(_dirs) - _ARTIFACTS_MAX_KEEP]:
+                    shutil.rmtree(_old, ignore_errors=True)
+        except Exception:
+            pass
+        rels = []
+        for root, dirs, files in os.walk(clone_dir):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for fn in files:
+                if fn in _ARTIFACT_EXCLUDES:
+                    continue
+                src = os.path.join(root, fn)
+                rel = os.path.relpath(src, clone_dir)
+                dst = os.path.join(artifacts_root, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                rels.append(os.path.join("artifacts", clone_id, rel).replace("\\", "/"))
+        return rels
+    except Exception:
+        return []
+
+
 def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     """
     生成工蚁执行命令。
@@ -714,10 +882,23 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
     clone_dir = os.path.join(CLONE_POOL_DIR, f"clone_{clone_id}")
     os.makedirs(clone_dir, exist_ok=True)
 
+    # 清理历史克隆目录：只保留最近 20 个，防止进程被强杀（finally 不执行）后残留堆积
+    try:
+        _dirs = [
+            os.path.join(CLONE_POOL_DIR, d) for d in os.listdir(CLONE_POOL_DIR)
+            if d.startswith("clone_") and os.path.isdir(os.path.join(CLONE_POOL_DIR, d))
+        ]
+        if len(_dirs) > _CLONE_POOL_MAX_KEEP:
+            _dirs.sort(key=os.path.getmtime)
+            for _old in _dirs[: len(_dirs) - _CLONE_POOL_MAX_KEEP]:
+                shutil.rmtree(_old, ignore_errors=True)
+    except Exception:
+        pass
+
     # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(THIS_FILE, clone_script)
-    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py"):
+    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py"):
         _src = os.path.join(THIS_DIR, _dep)
         if os.path.isfile(_src):
             shutil.copy2(_src, os.path.join(clone_dir, _dep))
@@ -763,23 +944,25 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
+            **(  {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt"
+                else {"start_new_session": True}  # POSIX：独立进程组，便于整树击杀
+            ),
         )
-        global _ACTIVE_CLONE_PROC
-        _ACTIVE_CLONE_PROC = proc
+        global _ACTIVE_CLONE_PROCS
+        _ACTIVE_CLONE_PROCS.append(proc)
 
         try:
             deadline = time.time() + timeout + 60
             while proc.poll() is None:
                 if AGENT_CANCEL:
-                    proc.kill()
+                    _kill_process_tree(proc)
                     proc.wait(timeout=5)
                     return json.dumps({
                         "status": "cancelled",
                         "error": "用户强行停止，工蚁已终止",
                     }, ensure_ascii=False)
                 if time.time() > deadline:
-                    proc.kill()
+                    _kill_process_tree(proc)
                     proc.wait(timeout=5)
                     return json.dumps({
                         "status": "timeout",
@@ -789,7 +972,7 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 time.sleep(0.15)
             stdout, stderr = proc.communicate()
         except subprocess.TimeoutExpired:
-            proc.kill()
+            _kill_process_tree(proc)
             stdout, stderr = proc.communicate()
             return json.dumps({
                 "status": "timeout",
@@ -797,7 +980,10 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 "clone_dir": clone_dir,
             }, ensure_ascii=False)
         finally:
-            _ACTIVE_CLONE_PROC = None
+            try:
+                _ACTIVE_CLONE_PROCS.remove(proc)
+            except ValueError:
+                pass
 
         # 读取工蚁结果
         if os.path.exists(result_file):
@@ -810,6 +996,17 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 "stdout": stdout[:2000] if stdout else "",
                 "stderr": stderr[:2000] if stderr else "",
             }, ensure_ascii=False)
+
+        # 产出回收：销毁目录前归档工蚁生成的用户文件
+        artifacts = collect_clone_artifacts(clone_dir, clone_id)
+        if artifacts:
+            try:
+                d = json.loads(result)
+                if isinstance(d, dict):
+                    d["artifacts"] = artifacts
+                    result = json.dumps(d, ensure_ascii=False)
+            except Exception:
+                pass
 
         print(f"[工蚁] {label or clone_id} 完成 (exit={proc.returncode})")
 
@@ -844,7 +1041,10 @@ def _unwrap_worker_json(spawn_result: str) -> str:
 
 def view_file(path: str, start_line: int = 1, end_line: int = 0) -> str:
     """派工蚁只读查看文件（蚁后自己不读）。"""
-    p = _resolve_path(path)
+    try:
+        p = _resolve_path(path)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
     py = ct.build_view_file_script(p, start_line, end_line)
     raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"查看·{p.name}")
     return _unwrap_worker_json(raw)
@@ -852,7 +1052,10 @@ def view_file(path: str, start_line: int = 1, end_line: int = 0) -> str:
 
 def list_dir(path: str = ".", max_entries: int = 100) -> str:
     """派工蚁只读列目录（蚁后自己不列）。"""
-    p = _resolve_path(path)
+    try:
+        p = _resolve_path(path)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
     py = ct.build_list_dir_script(p, max_entries)
     raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"列目录·{p.name}")
     return _unwrap_worker_json(raw)
@@ -868,7 +1071,10 @@ def grep_files(
     err = ct.validate_grep_pattern(pattern)
     if err:
         return json.dumps({"status": "error", "error": f"无效正则：{err}"}, ensure_ascii=False)
-    p = _resolve_path(path)
+    try:
+        p = _resolve_path(path)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
     py = ct.build_grep_script(p, pattern, glob, max_matches)
     raw = spawn_clone(command=_worker_py_cmd(py), timeout=120, label=f"搜索·{pattern[:24]}")
     return _unwrap_worker_json(raw)
@@ -876,7 +1082,10 @@ def grep_files(
 
 def write_file(path: str, content: str) -> str:
     """派工蚁写入文件（蚁后自己不写）。"""
-    p = _resolve_path(path)
+    try:
+        p = _resolve_path(path)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
     py = ct.build_write_file_script(p, content or "")
     raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"写入·{p.name}")
     return _unwrap_worker_json(raw)
@@ -889,34 +1098,143 @@ def search_replace(
     replace_all: bool = False,
 ) -> str:
     """派工蚁精确替换文件片段（蚁后自己不写）。"""
-    p = _resolve_path(path)
+    try:
+        p = _resolve_path(path)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
     py = ct.build_search_replace_script(p, old_string, new_string, replace_all)
     raw = spawn_clone(command=_worker_py_cmd(py), timeout=60, label=f"替换·{p.name}")
     return _unwrap_worker_json(raw)
 
 
+# 高危命令模式：命中即拦截，避免工蚁/蚁后手滑造成不可逆破坏。
+# 覆盖范围：递归删除指向根/绝对路径/盘符/主目录/上级/当前/通配/HOME，以及格式化、关机、fork bomb。
+# 设计意图（与旧版一致）：只拦系统级不可逆操作，项目内相对路径（如 rm -rf node_modules）仍放行。
+_DANGER_CLI_PATTERNS = (
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+/(?!/)", "递归删除根/绝对路径"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+[a-zA-Z]:[\\/]", "递归删除整个盘符"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+~", "递归删除用户主目录"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\.\.(?:[\\/]|\s|$)", "递归删除上级目录"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\.(?:\s|$)", "递归删除当前目录"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\*", "通配递归删除"),
+    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+[$]HOME", "递归删除 HOME"),
+    (r"\bdel\s+/[sqf]+\s+[a-zA-Z]:[\\/]", "强制删除系统盘"),
+    (r"\brd\s+/[sq]+\s+[a-zA-Z]:[\\/]", "删除系统盘目录"),
+    (r"\bformat\s+[a-zA-Z]:", "格式化磁盘"),
+    (r"\bshutdown\b", "关机/重启"),
+    (r"\bhalt\b", "关机"),
+    (r"\bmkfs\b", "格式化文件系统"),
+    (r"\bdd\s+if=/dev/zero\b", "危险磁盘写入"),
+    (r"\bRemove-Item\b[^\n]*(?:-Recurse|-Force|-r\b)", "PowerShell 递归/强制删除"),
+    (r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};:", "fork bomb"),
+)
+
+
+def _check_danger_command(command: str):
+    """返回 (是否拦截, 原因)。只拦指向系统根/盘符根/磁盘/关机的不可逆操作。"""
+    for pat, why in _DANGER_CLI_PATTERNS:
+        if re.search(pat, command or ""):
+            return True, why
+    return False, ""
+
+
 def run_cli(command: str, timeout: int = 300) -> str:
-    """工蚁模式下直接执行命令。蚁后模式不应调用此函数。"""
+    """工蚁模式下直接执行命令（UTF-8 环境 + 脚本文件传递）。蚁后模式不应调用此函数。"""
+    danger, why = _check_danger_command(command)
+    if danger:
+        return (
+            f"命令已被安全拦截（{why}）。如需删除文件请改用 write_file/search_replace，"
+            f"或明确指定项目内的相对路径。"
+        )
+    scratch = None
     try:
+        scratch = tempfile.mkdtemp(prefix="antnest_cli_")
+        argv = antnest_clone_worker.prepare_command_script(command or "", scratch)
+        run_env = os.environ.copy()
+        run_env.setdefault("PYTHONIOENCODING", "utf-8")
+        run_env.setdefault("PYTHONUTF8", "1")
         result = subprocess.run(
-            [SHELL, SHELL_FLAG, command],
+            argv,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             cwd=os.getcwd(),
             timeout=timeout,
             shell=False,
+            env=run_env,
             **({"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}),
         )
-        output = f"Exit code: {result.returncode}\n{result.stdout}"
-        if result.stderr:
-            output += f"\nSTDERR:\n{result.stderr}"
+        stdout = antnest_clone_worker.decode_output(result.stdout)
+        stderr = antnest_clone_worker.decode_output(result.stderr)
+        output = f"Exit code: {result.returncode}\n{stdout}"
+        if stderr:
+            output += f"\nSTDERR:\n{stderr}"
         return output.strip() or "(no output)"
     except subprocess.TimeoutExpired:
         return f"执行超时（{timeout}秒）"
     except Exception as e:
         return f"执行失败：{str(e)}"
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+def run_python(code: str, timeout: int = 120) -> str:
+    """直接解释执行 Python 代码（不走 shell，免疫引号/编码问题）。
+
+    代码写入临时 .py 文件后用当前解释器执行，stdout/stderr 按 UTF-8 捕获。
+    与 run_cli 的区别：不经过 PowerShell/bash，中文与引号完整保留。
+    """
+    scratch = None
+    try:
+        scratch = tempfile.mkdtemp(prefix="antnest_py_")
+        script = os.path.join(scratch, "run_py.py")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(code or "")
+        run_env = os.environ.copy()
+        run_env.setdefault("PYTHONIOENCODING", "utf-8")
+        run_env.setdefault("PYTHONUTF8", "1")
+        result = subprocess.run(
+            [sys.executable, script],
+            capture_output=True,
+            cwd=PROJECT_DIR,
+            timeout=timeout,
+            env=run_env,
+            **(  {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+            ),
+        )
+        stdout = antnest_clone_worker.decode_output(result.stdout)
+        stderr = antnest_clone_worker.decode_output(result.stderr)
+        output = f"Exit code: {result.returncode}\n{stdout}"
+        if stderr:
+            output += f"\nSTDERR:\n{stderr}"
+        if len(output) > _RUN_PYTHON_OUTPUT_CAP:
+            output = output[: _RUN_PYTHON_OUTPUT_CAP] + "\n…（输出过长已截断）"
+        return output.strip() or "(no output)"
+    except subprocess.TimeoutExpired:
+        return f"执行超时（{timeout}秒）"
+    except Exception as e:
+        return f"执行失败：{str(e)}"
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+def web_fetch(url: str, max_bytes: int = 30000) -> str:
+    """抓取网页并转纯文本（蚁后查文档用）。仅允许 http/https，防 file:// 读本地与 SSRF。"""
+    try:
+        from urllib.parse import urlparse
+        _scheme = (urlparse(url or "").scheme or "").lower()
+        if _scheme not in ("http", "https"):
+            return f"抓取被拒绝：仅支持 http/https 协议（收到 {_scheme or '无协议'}）"
+        import html as _h, urllib.request as _u
+        with _u.urlopen(_u.Request(url, headers={"User-Agent": "Mozilla/5.0 AntNest"}), timeout=20) as r:
+            raw = r.read(max_bytes + 4096)
+        t = raw.decode("utf-8", "replace")
+        t = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", t)
+        t = re.sub(r"(?s)<[^>]+>", " ", t)
+        t = re.sub(r"[ \t]+", " ", _h.unescape(t)).strip()
+        return t[:max_bytes] or "(无可读文本)"
+    except Exception as e:
+        return f"抓取失败：{str(e)}"
 
 
 # ====================== 记忆管理 ======================
@@ -1208,6 +1526,8 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
 
     if usage is None:
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    # token 用量实时上报（UI 顶栏显示）
+    _stream_emit("usage", json.dumps(usage, ensure_ascii=False))
     return message, usage
 
 
@@ -1220,6 +1540,8 @@ tool_executors = {
     "write_file": write_file,
     "search_replace": search_replace,
     "run_cli": run_cli,
+    "run_python": run_python,
+    "web_fetch": web_fetch,
     "leave_memory_hints": leave_memory_hints,
     "mcp_call": mcp_call,
     "mcp_list_tools": mcp_list_tools,
@@ -1237,7 +1559,7 @@ def _detect_malformed_tool_call(content: str):
         return True
     # JSON 格式：文本中以 {"name": 开头且有 "arguments" 键（模拟 function call）
     if re.search(
-        r'\{\s*"name"\s*:\s*"(?:spawn_clone|view_file|list_dir|grep_files|write_file|search_replace|run_cli|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
+        r'\{\s*"name"\s*:\s*"(?:spawn_clone|view_file|list_dir|grep_files|write_file|search_replace|run_cli|run_python|web_fetch|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
         content_lower,
     ):
         return True
@@ -1247,7 +1569,21 @@ def _detect_malformed_tool_call(content: str):
 def agent_single_loop():
     global COMPACT_PANIC, LAST_USAGE
     break_loop = False
+    _rounds = 0
+    _recent_cmds = []  # 最近工具调用 (name, args) 记录，用于重复循环检测
+    _max_rounds = int(os.environ.get("ANT_MAX_ROUNDS", "60"))
     while not break_loop:
+        _rounds += 1
+        if _rounds > _max_rounds:
+            print(f"\n[!] 已达单任务最大轮次 {_max_rounds}，强制结束")
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"《系统提示》已达单任务最大轮次（{_max_rounds} 轮），"
+                    "请立即总结当前进度并停止，不要再调用任何工具。"
+                ),
+            })
+            break
         if AGENT_CANCEL:
             print("\n\n[STOP] 用户强行停止")
             messages.append({
@@ -1260,7 +1596,7 @@ def agent_single_loop():
             sys.stdout.flush()
             tools = get_queen_tools(COMPACT_PANIC)
             try:
-                msg, usage = llm_chat_stream(messages, tools=tools)
+                msg, usage = llm_chat_stream(_with_retrieved_memory(messages), tools=tools)
             except ThinkRepeatError:
                 print("\n\n[!] 检测到 thinking 重复，自动中断")
                 messages.append({
@@ -1302,12 +1638,39 @@ def agent_single_loop():
                 try:
                     args = json.loads(func["arguments"])
 
+                    # 重复调用检测：连续 _DUP_CALL_LIMIT 次相同工具+相同参数 → 中断循环（防自检反复创建脚本/命令）
+                    _key = (name, json.dumps(args, ensure_ascii=False)[:120])
+                    _recent_cmds.append(_key)
+                    if len(_recent_cmds) > _DUP_RECENT_MAX:
+                        del _recent_cmds[0]
+                    if _recent_cmds.count(_key) >= _DUP_CALL_LIMIT:
+                        print(f"\n[!] 检测到重复调用 {name}（连续 3 次相同参数），中断本轮循环")
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "《系统提示》检测到你连续 3 次以相同参数调用同一工具，疑似陷入循环。"
+                                "请停止重复尝试，换一种思路，或总结当前状态并报告。"
+                            ),
+                        })
+                        break_loop = True
+                        break
+
                     print(f"===> {name}")
                     for k, v in args.items():
                         print(f"  {k}: {v}")
                     print()
 
                     result = tool_executors[name](**args)
+                    # spawn_clone 失败自动重试一次（仅 error；timeout 不重试，
+                    # 避免卡死命令翻倍耗时）
+                    if name == "spawn_clone":
+                        try:
+                            d = json.loads(result)
+                            if d.get("status") == "error":
+                                print(f"[重试] spawn_clone 状态=error，自动重试一次")
+                                result = tool_executors[name](**args)
+                        except Exception:
+                            pass
                 except KeyboardInterrupt:
                     print("\n工具调用已中断，回到用户 turn")
                     result = "用户中止该工具运行"
@@ -1329,20 +1692,19 @@ def agent_single_loop():
 
                 if name == "leave_memory_hints":
                     usage["total_tokens"] = 0
-                else:
-                    if len(result) > TOOL_RESULT_LEN:
-                        half = TOOL_RESULT_LEN // 2
-                        result = (
-                            result[:half]
-                            + "\n...（中间内容已省略）...\n"
-                            + result[-half:]
-                        )
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "name": name,
-                        "content": clean_input(result),
-                    })
+                if len(result) > TOOL_RESULT_LEN:
+                    half = TOOL_RESULT_LEN // 2
+                    result = (
+                        result[:half]
+                        + "\n...（中间内容已省略）...\n"
+                        + result[-half:]
+                    )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "name": name,
+                    "content": clean_input(result),
+                })
 
                 if AGENT_CANCEL:
                     break_loop = True
@@ -1357,6 +1719,27 @@ def agent_single_loop():
                     for i, m in enumerate(messages):
                         messages[i] = _trim_tool_content(m)
                     messages.append({"role": "user", "content": COMPACT_PROMPT})
+
+            # 兜底：确保每个 tool_call 都有 tool 响应，否则下一轮 LLM 调用会被
+            # API 以「insufficient tool messages」400 拒绝（中断/重复检测提前 break 时会缺）
+            for _i in range(len(messages) - 1, -1, -1):
+                _m = messages[_i]
+                if _m.get("role") != "assistant" or not _m.get("tool_calls"):
+                    continue
+                _responded = {
+                    m.get("tool_call_id") for m in messages
+                    if m.get("role") == "tool" and m.get("tool_call_id")
+                }
+                for _tc in _m["tool_calls"]:
+                    _tid = (_tc or {}).get("id")
+                    if _tid and _tid not in _responded:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": _tid,
+                            "name": ((_tc.get("function") or {}).get("name", "")),
+                            "content": "（工具调用被中断，未执行）",
+                        })
+                break
 
         except KeyboardInterrupt:
             print("\nagent_single_loop 已中断，回到用户 turn")
@@ -1452,24 +1835,66 @@ def release_lock():
     session_mod.release_lock(PROJECT_DIR, SESSION_DIR)
 
 
-def save_session(messages):
-    session_mod.save_session(messages, PROJECT_DIR, SESSION_DIR)
+def save_session(messages, project_dir=None, session_dir=None, session_id="default"):
+    pd = project_dir or PROJECT_DIR
+    sd = session_dir or SESSION_DIR
+    try:
+        session_mod.save_session(messages, pd, sd, session_id)
+    except TypeError:
+        # 兼容旧版 antnest_session.py（仅 1 参数签名）：先按旧方式写入文件
+        sf = session_mod.get_session_file(pd, sd, session_id)
+        os.makedirs(os.path.dirname(sf), exist_ok=True)
+        with open(sf, "w", encoding="utf-8") as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
 
 
-def load_session():
-    return session_mod.load_session(
-        None,
-        SYSTEM_PROMPT,
-        nest_md,
-        hints,
-        ENV_INFO,
-        PROJECT_DIR,
-        SESSION_DIR,
-    )
+def load_session(session_id="default"):
+    try:
+        nm = nest_md
+    except NameError:
+        nm = ""
+    try:
+        hn = hints
+    except NameError:
+        hn = ""
+    try:
+        return session_mod.load_session(
+            None, SYSTEM_PROMPT, nm, hn, ENV_INFO,
+            PROJECT_DIR, SESSION_DIR, session_id=session_id,
+        )
+    except TypeError:
+        # 兼容旧版 antnest_session.py（无 session_id 参数）：直接读 JSON 文件
+        sd = SESSION_DIR
+        d_hash = re.sub(r"[\\/:]", "_", PROJECT_DIR)
+        sf = os.path.join(sd, d_hash, f"{session_id}.json")
+        if not os.path.exists(sf):
+            legacy = os.path.join(sd, f"{d_hash}.json")
+            sf = legacy if os.path.exists(sf) else None
+        if not sf or not os.path.exists(sf):
+            return None
+        try:
+            with open(sf, "r", encoding="utf-8") as f:
+                msgs = json.load(f)
+            if not isinstance(msgs, list) or len(msgs) < 2:
+                return None
+            msgs[0] = {"role": "system", "content": SYSTEM_PROMPT.format(
+                nest_md=nm or "无", hints=hn or "无", env_info=ENV_INFO,
+            )}
+            return msgs
+        except Exception:
+            return None
 
 
 def list_sessions():
     session_mod.list_sessions(PROJECT_DIR, SESSION_DIR)
+
+
+def list_project_sessions():
+    return session_mod.list_project_sessions(PROJECT_DIR, SESSION_DIR)
+
+
+def delete_session(session_id):
+    return session_mod.delete_session(PROJECT_DIR, SESSION_DIR, session_id)
 
 
 def clear_session():

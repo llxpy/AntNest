@@ -55,6 +55,7 @@ Source: "{#SourceDir}\antnest_session.py";      DestDir: "{app}"; Flags: ignorev
 Source: "{#SourceDir}\ui_render.py";            DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\ui_assets_loader.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\api_compat.py";            DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\memory_retrieval.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\pyproject.toml";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\uv.lock";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignoreversion
