@@ -163,7 +163,12 @@ def detect_model_len():
         print(f"> 已跳过 /models 检测，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
         return DEFAULT_TOKEN_CAP
 
-    url = f"{ANT_BASE_URL}/models"
+    base = (ANT_BASE_URL or "").strip().rstrip("/")
+    if not base or "://" not in base:
+        print(f"警告：API Base URL 无效（{ANT_BASE_URL!r}），使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        return DEFAULT_TOKEN_CAP
+
+    url = f"{base}/models"
     req = urllib.request.Request(url, headers=COMMON_HEADER)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:

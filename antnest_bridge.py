@@ -354,8 +354,8 @@ def fetch_models_list(base_url, api_key, timeout=12) -> dict:
 
     base = (base_url or "").strip().rstrip("/")
     key = (api_key or "").strip()
-    if not base:
-        return {"ok": False, "msg": "Base URL 为空", "models": [], "raw": []}
+    if not base or "://" not in base:
+        return {"ok": False, "msg": "Base URL 为空或格式无效", "models": [], "raw": []}
     if not key:
         return {"ok": False, "msg": "API Key 为空", "models": [], "raw": []}
 

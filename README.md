@@ -52,7 +52,7 @@ uv run python prototype_antnest.py
 
 ## Configuration
 
-Copy `config.json.example` to `config.json` and fill in your API key:
+Copy `config.example.json` to `config.json` and fill in your API key:
 
 ```json
 {
@@ -124,7 +124,7 @@ AntNest/
   installer/                 # Inno Setup + PowerShell bootstrapper
   tests/                     # pytest test suite
   AntNest.exe                # Compiled launcher (ps2exe)
-  config.json.example        # Template (no real keys)
+  config.example.json        # Template (no real keys)
 ```
 
 ---

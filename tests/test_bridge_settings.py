@@ -88,6 +88,14 @@ class FetchModelsTest(unittest.TestCase):
         self.assertEqual(len(result["models"]), 1)
         self.assertEqual(result["models"][0]["id"], "deepseek-v4-flash")
 
+    def test_fetch_models_list_rejects_relative_url(self):
+        import antnest_bridge as bridge_mod
+
+        result = bridge_mod.fetch_models_list("", "test-key")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["models"], [])
+        self.assertIn("URL", result["msg"])
+
 
 if __name__ == "__main__":
     unittest.main()
