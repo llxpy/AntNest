@@ -956,7 +956,7 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
     # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(THIS_FILE, clone_script)
-    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py"):
+    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py", "task_manager.py"):
         _src = os.path.join(THIS_DIR, _dep)
         if os.path.isfile(_src):
             shutil.copy2(_src, os.path.join(clone_dir, _dep))

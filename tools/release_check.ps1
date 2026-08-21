@@ -42,7 +42,7 @@ if ($version) {
 # Required release files.
 $required = @(
     "AntNest.py", "prototype_antnest.py", "antnest_bridge.py", "phtmlwin.py",
-    "api_compat.py", "mcp_client.py", "pyproject.toml", "uv.lock",
+    "api_compat.py", "mcp_client.py", "task_manager.py", "pyproject.toml", "uv.lock",
     "installer\AntNest.iss", "installer\launcher.ps1", "installer\launch.ps1",
     "installer\install_deps.ps1", "installer\ensure_prereqs.ps1",
     "installer\uv_helper.ps1", "installer\version.iss"
