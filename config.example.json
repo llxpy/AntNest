@@ -15,6 +15,7 @@
       "2": 3
     },
     "compact_threshold": 0.85,
-    "tool_result_max_len": 8000
+    "tool_result_max_len": 8000,
+    "worker_timeout": 300
   }
 }

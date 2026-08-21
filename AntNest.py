@@ -241,6 +241,7 @@ _config_agent = _config.get("agent", {})
 TOKEN_CAP = detect_model_len()
 COMPACT_THRESH = float(os.environ.get("ANT_COMPACT_THRESH") or _config_agent.get("compact_threshold", 0.85))
 TOOL_RESULT_LEN = int(os.environ.get("ANT_TOOL_RESULT_LEN") or _config_agent.get("tool_result_max_len", min(8000, int(TOKEN_CAP / 20))))
+DEFAULT_WORKER_TIMEOUT = int(os.environ.get("ANT_WORKER_TIMEOUT") or _config_agent.get("worker_timeout", 300))
 ALLOW_ALL_CLI = False
 COMPACT_PANIC = False
 LAST_USAGE = None
@@ -494,8 +495,8 @@ spawn_clone_schema = {
                 },
                 "timeout": {
                     "type": "integer",
-                    "default": 300,
-                    "description": "超时时间（秒）",
+                    "default": 0,
+                    "description": "超时时间（秒），0 表示使用默认值（config 中的 worker_timeout，默认 300 秒）",
                 },
                 "label": {
                     "type": "string",
@@ -902,7 +903,7 @@ def collect_clone_artifacts(clone_dir: str, clone_id: str) -> list:
         return []
 
 
-def spawn_clone(command: str, timeout: int = 300, label: str = "", verify: bool = False) -> str:
+def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = False) -> str:
     """
     生成工蚁执行命令。
     1. 检查深度限制（硬拦截）
@@ -915,6 +916,8 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "", verify: bool 
     8. 更新任务状态
     9. 销毁工蚁目录
     """
+    if timeout <= 0:
+        timeout = DEFAULT_WORKER_TIMEOUT
     # ====== 深度硬拦截：代码级兜底，不依赖 LLM 遵守 prompt ======
     current_depth = int(os.environ.get("AN_DEPTH", "0"))
     if current_depth > MAX_DEPTH:
