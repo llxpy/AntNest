@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D1117">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- 标题 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layout_marginBottom="24dp">
+
+            <ImageButton
+                android:id="@+id/btn_back"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_revert"
+                android:contentDescription="返回"
+                android:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:text="设置"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- API 配置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API 配置"
+            android:textColor="#58A6FF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API Base URL"
+            android:textColor="#8B949E"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/input_base_url"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#161B22"
+            android:hint="https://api.deepseek.com/v1"
+            android:inputType="textUri"
+            android:paddingHorizontal="16dp"
+            android:textColor="#C9D1D9"
+            android:textColorHint="#484F58"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="API Key"
+            android:textColor="#8B949E"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/input_api_key"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#161B22"
+            android:hint="sk-..."
+            android:inputType="textPassword"
+            android:paddingHorizontal="16dp"
+            android:textColor="#C9D1D9"
+            android:textColorHint="#484F58"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型名称"
+            android:textColor="#8B949E"
+            android:textSize="12sp"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/input_model"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#161B22"
+            android:hint="deepseek-chat"
+            android:inputType="text"
+            android:paddingHorizontal="16dp"
+            android:textColor="#C9D1D9"
+            android:textColorHint="#484F58"
+            android:textSize="14sp"
+            android:layout_marginBottom="20dp" />
+
+        <!-- 常用配置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="常用配置"
+            android:textColor="#58A6FF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/preset_deepseek"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:padding="14dp"
+            android:text="🤖 DeepSeek\nhttps://api.deepseek.com/v1 | deepseek-chat"
+            android:textColor="#C9D1D9"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/preset_kimi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:padding="14dp"
+            android:text="🌙 Kimi (Moonshot)\nhttps://api.moonshot.cn/v1 | kimi-k2.6"
+            android:textColor="#C9D1D9"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/preset_minimax"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:padding="14dp"
+            android:text="⚡ MiniMax\nhttps://api.minimax.chat/v1 | MiniMax-M2.5"
+            android:textColor="#C9D1D9"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/preset_openai"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:padding="14dp"
+            android:text="🧠 OpenAI\nhttps://api.openai.com/v1 | gpt-4o"
+            android:textColor="#C9D1D9"
+            android:textSize="13sp"
+            android:layout_marginBottom="20dp" />
+
+        <!-- 保存按钮 -->
+        <TextView
+            android:id="@+id/btn_save"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#238636"
+            android:gravity="center"
+            android:text="保存配置"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 状态提示 -->
+        <TextView
+            android:id="@+id/save_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text=""
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 关于 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="关于"
+            android:textColor="#58A6FF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#161B22"
+            android:padding="16dp"
+            android:text="AntNest Android v1.0.0\n架构: Kotlin + 原生 Android\n开源: github.com/llxpy/AntNest\n\n一个运行在手机上的 AI 助手，\n可以帮你查找文件、查看 WiFi、\n扫描蓝牙、读取传感器等。"
+            android:textColor="#8B949E"
+            android:textSize="13sp"
+            android:lineSpacingExtra="4dp" />
+
+    </LinearLayout>
+</ScrollView>

@@ -23,3 +23,11 @@ ui_config.json
 config.json
 # 独立密钥文件（明文 key，权限 0600，同样绝不入库）
 config.json.key
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/gradle/wrapper/gradle-wrapper.jar
