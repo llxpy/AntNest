@@ -341,6 +341,27 @@ class Win:
             start_kwargs["icon"] = self.icon
         if self._gui:
             start_kwargs["gui"] = self._gui
+        # 最小化到任务栏：关闭窗口时最小化而非退出
+        self._minimize_on_close = True
+        self._on_close_callback = None
+
+        def _on_closing():
+            """拦截关闭事件：最小化到任务栏而非退出"""
+            if self._minimize_on_close and self._window:
+                try:
+                    # 最小化窗口
+                    self._window.minimize()
+                    return False  # 阻止关闭
+                except Exception:
+                    pass
+            return True  # 允许关闭
+
+        # 注册关闭回调
+        try:
+            self._window.events.closing += lambda: _on_closing()
+        except Exception:
+            pass
+
         try:
             webview.start(**start_kwargs)
         except Exception as e:

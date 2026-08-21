@@ -15,6 +15,61 @@ UI 只做「订阅事件 → 改状态 → 局部刷新」，不含任何业务�
 import sys
 import os
 import traceback
+import json
+import threading
+
+# ---------------------------------------------------------------------------
+# 单实例锁：防止多开
+# ---------------------------------------------------------------------------
+_SINGLETON_LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".antnest", ".lock")
+
+def _check_singleton():
+    """检查是否已有实例在运行。如果有，弹窗提示并退出。"""
+    lock_dir = os.path.dirname(_SINGLETON_LOCK_FILE)
+    os.makedirs(lock_dir, exist_ok=True)
+
+    if os.path.exists(_SINGLETON_LOCK_FILE):
+        try:
+            with open(_SINGLETON_LOCK_FILE, "r") as f:
+                old_pid = int(f.read().strip())
+            # 检查进程是否还活着
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, old_pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if handle:
+                kernel32.CloseHandle(handle)
+                # 进程还在，弹窗提示
+                try:
+                    import ctypes.wintypes
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        f"AntNest 已经在运行中（PID: {old_pid}）。\n请先关闭现有窗口，或从系统托盘打开。",
+                        "AntNest",
+                        0x40 | 0x0  # MB_ICONINFORMATION | MB_OK
+                    )
+                except Exception:
+                    print(f"AntNest 已经在运行中（PID: {old_pid}）")
+                sys.exit(0)
+        except (ValueError, IOError):
+            pass
+
+    # 写入当前 PID
+    try:
+        with open(_SINGLETON_LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
+
+def _release_singleton():
+    """释放单实例锁"""
+    try:
+        if os.path.exists(_SINGLETON_LOCK_FILE):
+            os.remove(_SINGLETON_LOCK_FILE)
+    except Exception:
+        pass
+
+# 启动时检查单实例
+_check_singleton()
 
 # ---------------------------------------------------------------------------
 # 全局致命错误钩子：任何崩溃（含导入期 / 启动前）都弹窗 + 写日志，
@@ -248,6 +303,49 @@ MAX_CHATS_RENDER = 300    # DOM 渲染的聊天条数上限
 #   LLM / agent 参数 → config.json（AntNest 的嵌套结构，原样保留）
 #   外观 / UI-only   → ui_config.json
 SETTINGS, APPEARANCE = bridge.load_settings()
+
+
+# ---------------------------------------------------------------------------
+# 会话自动加载：启动时恢复上次对话
+# ---------------------------------------------------------------------------
+def _auto_load_last_session():
+    """启动时自动加载最近一次会话的对话记录到 CHATS。"""
+    global CHATS, _SESSION_ID
+    try:
+        import antnest_session as _sm
+        m = core.mod
+        if not m:
+            return
+        sessions = _sm.list_project_sessions(m.PROJECT_DIR, m.SESSION_DIR)
+        if not sessions:
+            return
+        # 取最近一个会话
+        last = sessions[0]
+        _SESSION_ID = last.get("id", "default")
+        session_file = _sm.get_session_file(m.PROJECT_DIR, m.SESSION_DIR, _SESSION_ID)
+        if not os.path.exists(session_file):
+            return
+        with open(session_file, "r", encoding="utf-8") as f:
+            messages = json.load(f)
+        if not isinstance(messages, list):
+            return
+        # 从 messages 中提取 user/assistant 对话
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user" and content:
+                CHATS.append({"role": "user", "text": content, "reasoning": ""})
+            elif role == "assistant" and content:
+                reasoning = msg.get("reasoning_content", "") or ""
+                CHATS.append({"role": "queen", "text": content, "reasoning": reasoning})
+        # 限制条数
+        if len(CHATS) > MAX_CHATS:
+            CHATS[:] = CHATS[-MAX_CHATS:]
+        bridge.trace("UI", "info", f"自动加载会话 [{_SESSION_ID}]，{len(CHATS)} 条对话")
+    except Exception as e:
+        bridge.trace("UI", "warn", f"自动加载会话失败：{e}")
+
+_auto_load_last_session()
 
 
 # ------------------------------------------------------------------ 事件 → UI
@@ -992,6 +1090,28 @@ def on_stop(data):
         _mark("log")
 
 
+@app.route("quit")
+def on_quit(data):
+    """真正退出应用：释放锁、保存会话、关闭窗口。"""
+    _push_log("sys", "正在退出 AntNest…")
+    _mark("log")
+    # 保存当前会话
+    try:
+        _auto_save_session()
+    except Exception:
+        pass
+    # 释放单实例锁
+    _release_singleton()
+    # 允许关闭窗口
+    app._minimize_on_close = False
+    # 关闭窗口
+    try:
+        if app._window:
+            app._window.destroy()
+    except Exception:
+        pass
+
+
 @app.route("send")
 def on_send(data):
     global SELECTED_IMAGE
@@ -1429,6 +1549,7 @@ app.body(
         ui.raw('<button class="btn ghost" onclick="checkForUpdate()" id="btn-check-update">⬆ 检查更新</button>'),
         ui.raw('<button class="btn ghost" onclick="openSessionsModal()" title="查看/恢复历史对话">🕘 对话记录</button>'),
         ui.raw('<button class="btn ghost" onclick="toggleSettings()">⚙ 设置</button>'),
+        ui.raw('<button class="btn ghost" onclick="phwCall(\'quit\',{})" title="退出 AntNest">⏻ 退出</button>'),
         ui.span(cls="muted token-usage", id="token-usage", title="本会话 token 用量")[""],
         ui.span(cls="muted")["蚁后"],
         ui.span(cls="pill idle", id="status-pill")["待命"],
@@ -1528,7 +1649,14 @@ app.body(
     ),
 )
 
+import atexit
+# 确保退出时释放单实例锁
+atexit.register(_release_singleton)
+
 if __name__ == "__main__":
     # 所有未捕获异常（含导入期、启动前、app.run 运行期）由全局 sys.excepthook
     # 统一弹窗 + 写 .antnest/startup_error.log，不再静默死亡。
-    app.run()
+    try:
+        app.run()
+    finally:
+        _release_singleton()
