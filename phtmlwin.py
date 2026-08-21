@@ -345,8 +345,22 @@ class Win:
             webview.start(**start_kwargs)
         except Exception as e:
             import sys
+            import traceback
+            import os
             print(f"[PHtmlWin] WebView2 initialization failed: {e}", file=sys.stderr)
             print("[PHtmlWin] Falling back to browser mode...", file=sys.stderr)
+            # 写入 startup_error.log，方便用户定位问题
+            try:
+                ant_home = os.environ.get("ANT_HOME") or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".antnest")
+                os.makedirs(ant_home, exist_ok=True)
+                log_path = os.path.join(ant_home, "startup_error.log")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write(f"[PHtmlWin] WebView2 initialization failed\n")
+                    f.write(f"Error: {e}\n")
+                    f.write(f"Falling back to browser mode\n\n")
+                    f.write(traceback.format_exc())
+            except Exception:
+                pass
             self._backend = "browser"
             self._start_browser()
 
