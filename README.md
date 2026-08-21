@@ -9,6 +9,15 @@ AntNest is a desktop AI assistant that runs shell commands through isolated work
 
 ---
 
+## Platforms
+
+| Platform | Status | Language | Path |
+|----------|--------|----------|------|
+| **Windows Desktop** | v1.2.3 stable | Python + pywebview | `/` (root) |
+| **Android** | v1.0.0 beta | Kotlin + XML | [`/android/`](android/) |
+
+---
+
 ## Why Queen/Worker?
 
 Traditional AI agents call the shell directly from the LLM process. One bad command poisons the environment. AntNest adds an isolation layer:
@@ -28,7 +37,7 @@ LLM reasoning -> spawn worker ant -> worker runs shell -> result returned -> wor
 
 ---
 
-## Quick Start
+## Quick Start (Desktop)
 
 ### Option A: Windows Installer
 
@@ -50,7 +59,25 @@ uv run python prototype_antnest.py
 
 ---
 
-## Configuration
+## Quick Start (Android)
+
+Download [`android/app-debug.apk`](android/app-debug.apk) and install on your phone.
+
+1. Open → splash screen → auto-navigate to chat
+2. Tap ⚙ in the top-right → configure API (DeepSeek / Kimi / OpenAI)
+3. Enter your API key → save → start chatting
+
+**Features:**
+- AI chat (OpenAI-compatible API)
+- Persistent memory with auto-compression (30 messages → summary)
+- Dark theme UI (#0D1117, GitHub style)
+- Tool framework: WiFi / Bluetooth / sensors / file search (in development)
+
+See [`android/README.md`](android/README.md) for full details.
+
+---
+
+## Configuration (Desktop)
 
 Copy `config.example.json` to `config.json` and fill in your API key:
 
@@ -59,7 +86,7 @@ Copy `config.example.json` to `config.json` and fill in your API key:
   "api": {
     "base_url": "https://api.deepseek.com/v1",
     "model_name": "deepseek-chat",
-    "api_key": "sk-your-key-here"
+    "api_key": "«redacted:sk-…»"
   },
   "agent": {
     "max_depth": 2,
@@ -111,20 +138,30 @@ AntNest auto-detects your API provider and adapts parameters:
 
 ```
 AntNest/
-  AntNest.py                 # Full agent (standalone)
-  prototype_antnest.py       # GUI entry point (pywebview)
-  antnest_bridge.py          # Python <-> WebView2 bridge
-  antnest_clone_worker.py    # Worker ant spawn/isolation
-  antnest_session.py         # Conversation session management
-  code_tools.py              # File read/write/patch tools
-  mcp_client.py              # MCP stdio client
-  api_compat.py              # Multi-provider API compatibility
-  skills_loader.py           # Skills plugin loader
-  phtmlwin.py                # Minimal pywebview GUI framework
-  installer/                 # Inno Setup + PowerShell bootstrapper
-  tests/                     # pytest test suite
-  AntNest.exe                # Compiled launcher (ps2exe)
-  config.example.json        # Template (no real keys)
+├── AntNest.py                 # Full agent (standalone)
+├── prototype_antnest.py       # GUI entry point (pywebview)
+├── antnest_bridge.py          # Python <-> WebView2 bridge
+├── antnest_clone_worker.py    # Worker ant spawn/isolation
+├── antnest_session.py         # Conversation session management
+├── code_tools.py              # File read/write/patch tools
+├── mcp_client.py              # MCP stdio client
+├── api_compat.py              # Multi-provider API compatibility
+├── skills_loader.py           # Skills plugin loader
+├── phtmlwin.py                # Minimal pywebview GUI framework
+├── task_manager.py            # Task state machine (pending→running→done→verified)
+├── installer/                 # Inno Setup + PowerShell bootstrapper
+├── tests/                     # pytest test suite
+├── tools/                     # release_check.ps1
+├── android/                   # Android version (Kotlin)
+│   ├── app/src/main/java/com/antnest/app/
+│   │   ├── MainActivity.kt    # Chat UI
+│   │   ├── ApiClient.kt       # OpenAI-compatible API client
+│   │   ├── MemoryManager.kt   # Persistent memory + compression
+│   │   └── ...
+│   ├── app-debug.apk          # Pre-built APK
+│   └── README.md
+├── AntNest.exe                # Compiled launcher (ps2exe)
+└── config.example.json        # Template (no real keys)
 ```
 
 ---
