@@ -137,6 +137,7 @@ class McpHub:
     def __init__(self):
         self.sessions: dict[str, McpSession] = {}
         self.tool_index: dict[str, tuple[str, str]] = {}  # tool_name -> (server, tool)
+        self.server_status: dict[str, str] = {}  # server -> "ready"|"failed"|"starting"
 
     def load_config(self, config_path: str) -> None:
         self.close()
@@ -153,13 +154,20 @@ class McpHub:
             cmd = cfg.get("command")
             if not cmd:
                 continue
-            sess = McpSession(name, cmd, cfg.get("args") or [], cfg.get("env") or {})
-            sess.initialize()
-            self.sessions[name] = sess
-            for tool in sess.list_tools():
-                tname = tool.get("name")
-                if tname:
-                    self.tool_index[tname] = (name, tname)
+            self.server_status[name] = "starting"
+            try:
+                sess = McpSession(name, cmd, cfg.get("args") or [], cfg.get("env") or {})
+                sess.initialize()
+                self.sessions[name] = sess
+                for tool in sess.list_tools():
+                    tname = tool.get("name")
+                    if tname:
+                        self.tool_index[tname] = (name, tname)
+                self.server_status[name] = "ready"
+            except Exception as e:
+                self.server_status[name] = "failed"
+                import sys
+                print(f"[MCP] server '{name}' init failed: {e}", file=sys.stderr)
 
     def call(self, server: str, tool: str, arguments: dict | None = None) -> str:
         sess = self.sessions.get(server)
