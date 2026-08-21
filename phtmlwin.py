@@ -336,13 +336,19 @@ class Win:
         if self._gui:
             kwargs["gui"] = self._gui
         self._window = webview.create_window(**kwargs)
-        # pywebview 6.2.1 的 icon / gui 是 webview.start() 的参数
         start_kwargs = {}
         if self.icon:
             start_kwargs["icon"] = self.icon
         if self._gui:
             start_kwargs["gui"] = self._gui
-        webview.start(**start_kwargs)
+        try:
+            webview.start(**start_kwargs)
+        except Exception as e:
+            import sys
+            print(f"[PHtmlWin] WebView2 initialization failed: {e}", file=sys.stderr)
+            print("[PHtmlWin] Falling back to browser mode...", file=sys.stderr)
+            self._backend = "browser"
+            self._start_browser()
 
     def _start_browser(self) -> None:
         app_self = self
