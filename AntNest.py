@@ -61,6 +61,18 @@ _config_api = _config.get("api", {})
 ANT_BASE_URL = os.environ.get("ANT_BASE_URL") or _config_api.get("base_url", "https://api.deepseek.com/v1")
 ANT_MODEL_NAME = os.environ.get("ANT_MODEL_NAME") or _config_api.get("model_name", "deepseek-v4-flash")
 
+# 启动时校验 Base URL（空或不含协议的 URL 会在 detect_model_len 时崩溃）
+_ANT_BASE_STRIPPED = (ANT_BASE_URL or "").strip().rstrip("/")
+if _ANT_BASE_STRIPPED and "://" not in _ANT_BASE_STRIPPED:
+    print(f"警告：API Base URL 格式无效（{ANT_BASE_URL!r}），缺少协议前缀（https://）")
+    print(f"配置文件位置：{_config_path}")
+    print(f"将使用默认值 https://api.deepseek.com/v1")
+    ANT_BASE_URL = "https://api.deepseek.com/v1"
+elif not _ANT_BASE_STRIPPED:
+    print(f"警告：API Base URL 为空，将使用默认值 https://api.deepseek.com/v1")
+    print(f"配置文件位置：{_config_path}")
+    ANT_BASE_URL = "https://api.deepseek.com/v1"
+
 
 def _load_secret_key() -> str:
     """从独立密钥文件（config.json.key，权限 0600）读取 API Key，避免明文落在 config.json。"""
