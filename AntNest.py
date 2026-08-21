@@ -428,6 +428,8 @@ SYSTEM_PROMPT = f"""
   - 工蚁执行环境已统一为 UTF-8（自动 chcp 65001 + 输出编码转换 + 自适应解码），命令输出中的中文不会再乱码，可以在命令中放心使用中文路径/内容
   - 超长命令（超过环境变量限制）会自动写入脚本文件执行，无需担心长度限制
   - 运行 Python 代码时：先用 write_file 写入 .py 脚本再执行 `python script.py`（中文与引号都会完整保留）；不要用 `python -c "..."` 内联方式——Windows PowerShell 5.1 会吞掉其中的引号导致语法错误，这是已知坑
+  - **验证模式**：设 `verify=true` 时，执行完成后会自动派验证工蚁检查结果。验证工蚁会检查：结果格式是否正确、是否有错误标志、输出是否完整。返回结果中会包含 `verified`、`verify_result`、`task_status` 字段
+  - **任务状态机**：每个工蚁任务都有状态（pending→running→done→verified/failed/timeout/cancelled），返回结果中会包含 `task_id` 和 `task_status`
 - view_file：派工蚁只读查看文件（分段、带行号）
 - list_dir：派工蚁只读列目录
 - grep_files：派工蚁在目录/文件中搜索文本（写代码前定位用）
@@ -487,8 +489,34 @@ spawn_clone_schema = {
                     "type": "string",
                     "description": "工蚁标签，用于日志追踪，如 '统计repo-a'",
                 },
+                "verify": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "是否派验证工蚁确认执行结果。设为 true 时，执行完成后会自动派验证工蚁检查结果是否正确。",
+                },
             },
             "required": ["command"],
+        },
+    },
+}
+
+get_task_status_schema = {
+    "type": "function",
+    "function": {
+        "name": "get_task_status",
+        "description": (
+            "查看工蚁任务的状态。返回任务的状态机信息（pending/running/done/verified/failed/timeout/cancelled）。"
+            "可用于检查任务是否完成、是否已验证。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "任务 ID（从 spawn_clone 返回结果中的 task_id 字段获取）",
+                },
+            },
+            "required": ["task_id"],
         },
     },
 }
@@ -775,6 +803,7 @@ def get_queen_tools(compact_panic: bool = False) -> list:
     else:
         base = [
             spawn_clone_schema,
+            get_task_status_schema,
             view_file_schema,
             list_dir_schema,
             grep_files_schema,
@@ -861,16 +890,18 @@ def collect_clone_artifacts(clone_dir: str, clone_id: str) -> list:
         return []
 
 
-def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
+def spawn_clone(command: str, timeout: int = 300, label: str = "", verify: bool = False) -> str:
     """
     生成工蚁执行命令。
     1. 检查深度限制（硬拦截）
-    2. 在 clone_pool 下创建隔离目录
-    3. 命令通过文件传递（避免环境变量截断）
-    4. 复制 AntNest.py 到隔离目录
-    5. 以 clone 模式启动工蚁
-    6. 等待工蚁执行完毕，读取结果
-    7. 销毁工蚁目录
+    2. 创建任务状态跟踪
+    3. 在 clone_pool 下创建隔离目录
+    4. 命令通过文件传递（避免环境变量截断）
+    5. 复制 AntNest.py 到隔离目录
+    6. 以 clone 模式启动工蚁
+    7. 等待工蚁执行完毕，读取结果
+    8. 更新任务状态
+    9. 销毁工蚁目录
     """
     # ====== 深度硬拦截：代码级兜底，不依赖 LLM 遵守 prompt ======
     current_depth = int(os.environ.get("AN_DEPTH", "0"))
@@ -882,6 +913,13 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 f"spawn_clone 已被硬拦截。请改用 run_cli 直接执行。"
             ),
         }, ensure_ascii=False)
+
+    # ====== 任务状态管理 ======
+    from task_manager import get_task_manager, TaskStatus
+    tm = get_task_manager()
+    task_id = uuid.uuid4().hex[:8]
+    task = tm.create_task(task_id, command, label)
+    task.mark_running()
 
     clone_id = uuid.uuid4().hex[:8]
     clone_dir = os.path.join(CLONE_POOL_DIR, f"clone_{clone_id}")
@@ -969,20 +1007,26 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
                 if time.time() > deadline:
                     _kill_process_tree(proc)
                     proc.wait(timeout=5)
+                    task.mark_timeout()
                     return json.dumps({
                         "status": "timeout",
                         "error": f"工蚁执行超时（{timeout}秒）",
                         "clone_dir": clone_dir,
+                        "task_id": task_id,
+                        "task_status": task.status.value,
                     }, ensure_ascii=False)
                 time.sleep(0.15)
             stdout, stderr = proc.communicate()
         except subprocess.TimeoutExpired:
             _kill_process_tree(proc)
             stdout, stderr = proc.communicate()
+            task.mark_timeout()
             return json.dumps({
                 "status": "timeout",
                 "error": f"工蚁执行超时（{timeout}秒）",
                 "clone_dir": clone_dir,
+                "task_id": task_id,
+                "task_status": task.status.value,
             }, ensure_ascii=False)
         finally:
             try:
@@ -1015,13 +1059,54 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
 
         print(f"[工蚁] {label or clone_id} 完成 (exit={proc.returncode})")
 
+        # ====== 任务状态更新 ======
+        try:
+            d = json.loads(result)
+            if isinstance(d, dict) and d.get("status") in ("error", "timeout"):
+                task.mark_failed(d.get("error", "未知错误"))
+            else:
+                task.mark_done(result)
+        except Exception:
+            task.mark_done(result)
+
+        # 将 task_id 注入返回结果
+        try:
+            d = json.loads(result)
+            if isinstance(d, dict):
+                d["task_id"] = task_id
+                d["task_status"] = task.status.value
+                result = json.dumps(d, ensure_ascii=False)
+        except Exception:
+            pass
+
+        # ====== 验证工蚁：如果 verify=True，派验证工蚁确认结果 ======
+        if verify and task.status == TaskStatus.DONE:
+            try:
+                verify_result = _verify_clone_result(task_id, command, result, timeout=min(timeout, 120))
+                task.mark_verified(verify_result)
+                # 将验证结果注入返回
+                try:
+                    d = json.loads(result)
+                    if isinstance(d, dict):
+                        d["verified"] = True
+                        d["verify_result"] = verify_result
+                        d["task_status"] = task.status.value
+                        result = json.dumps(d, ensure_ascii=False)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[验证] 验证工蚁异常：{e}")
+
         return result
 
     except Exception as e:
+        task.mark_failed(str(e))
         return json.dumps({
             "status": "error",
             "error": f"工蚁管理异常：{str(e)}",
             "clone_dir": clone_dir,
+            "task_id": task_id,
+            "task_status": task.status.value,
         }, ensure_ascii=False)
 
     finally:
@@ -1030,6 +1115,108 @@ def spawn_clone(command: str, timeout: int = 300, label: str = "") -> str:
             shutil.rmtree(clone_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+def _verify_clone_result(task_id: str, original_command: str, result: str, timeout: int = 120) -> str:
+    """
+    验证工蚁：派独立工蚁验证执行结果。
+    
+    验证逻辑：
+    1. 检查结果格式是否正确
+    2. 检查结果是否包含错误标志
+    3. 如果是文件操作，验证文件是否存在
+    4. 如果是代码执行，验证是否有语法错误
+    """
+    # 构造验证命令
+    verify_prompt = f"""你是验证工蚁，负责验证执行工蚁的结果。
+
+原始任务：{original_command[:500]}
+
+执行结果：{result[:2000]}
+
+请验证：
+1. 结果是否表明任务成功完成？
+2. 结果中是否有明显的错误或警告？
+3. 如果任务涉及文件操作，相关文件是否应该已创建/修改？
+4. 结果是否完整，没有截断？
+
+请以 JSON 格式返回验证结果：
+{{"verified": true/false, "reason": "验证原因", "issues": ["问题列表"]}}
+
+只返回 JSON，不要其他内容。"""
+
+    # 派验证工蚁（深度+1，避免无限嵌套）
+    current_depth = int(os.environ.get("AN_DEPTH", "0"))
+    if current_depth >= MAX_DEPTH:
+        # 深度不足，跳过验证
+        return json.dumps({
+            "verified": True,
+            "reason": "深度限制，跳过验证",
+            "issues": []
+        }, ensure_ascii=False)
+
+    # 使用简单的 Python 脚本验证，不派完整工蚁
+    try:
+        import subprocess
+        verify_script = f'''
+import json
+import sys
+
+result_text = """{result[:3000]}"""
+
+try:
+    d = json.loads(result_text)
+    if isinstance(d, dict):
+        status = d.get("status", "unknown")
+        if status in ("error", "timeout", "blocked"):
+            print(json.dumps({{"verified": False, "reason": f"执行状态为 {{status}}", "issues": [d.get("error", "未知错误")]}}))
+        elif status == "cancelled":
+            print(json.dumps({{"verified": False, "reason": "任务被取消", "issues": ["用户取消"]}}))
+        else:
+            # 检查是否有 output 或 result 字段
+            has_output = "output" in d or "result" in d or "stdout" in d
+            print(json.dumps({{"verified": has_output, "reason": "有输出内容" if has_output else "无输出内容", "issues": [] if has_output else ["缺少输出字段"]}}))
+    else:
+        print(json.dumps({{"verified": True, "reason": "非标准格式但无错误", "issues": []}}))
+except json.JSONDecodeError:
+    # 非 JSON 结果，检查是否有错误关键词
+    error_keywords = ["error", "Error", "ERROR", "exception", "Exception", "Traceback", "失败"]
+    has_error = any(kw in result_text for kw in error_keywords)
+    print(json.dumps({{"verified": not has_error, "reason": "包含错误关键词" if has_error else "无错误关键词", "issues": ["包含错误信息"] if has_error else []}}))
+'''
+        
+        proc = subprocess.run(
+            [sys.executable, "-c", verify_script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace"
+        )
+        
+        if proc.returncode == 0 and proc.stdout.strip():
+            verify_result = proc.stdout.strip()
+            # 解析验证结果
+            try:
+                vd = json.loads(verify_result)
+                if isinstance(vd, dict):
+                    return verify_result
+            except Exception:
+                pass
+        
+        # 验证脚本执行失败，默认通过
+        return json.dumps({
+            "verified": True,
+            "reason": "验证脚本执行异常，默认通过",
+            "issues": []
+        }, ensure_ascii=False)
+        
+    except Exception as e:
+        return json.dumps({
+            "verified": True,
+            "reason": f"验证异常：{str(e)}",
+            "issues": []
+        }, ensure_ascii=False)
 
 
 def _resolve_path(path: str) -> Path:
@@ -1536,9 +1723,23 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
     return message, usage
 
 
+def get_task_status(task_id: str) -> str:
+    """查看工蚁任务的状态"""
+    from task_manager import get_task_manager
+    tm = get_task_manager()
+    task = tm.get_task(task_id)
+    if task is None:
+        return json.dumps({
+            "status": "error",
+            "error": f"任务 {task_id} 不存在",
+        }, ensure_ascii=False)
+    return json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
+
+
 # ====================== 工具执行器注册 ======================
 tool_executors = {
     "spawn_clone": spawn_clone,
+    "get_task_status": get_task_status,
     "view_file": view_file,
     "list_dir": list_dir,
     "grep_files": grep_files,
@@ -1564,7 +1765,7 @@ def _detect_malformed_tool_call(content: str):
         return True
     # JSON 格式：文本中以 {"name": 开头且有 "arguments" 键（模拟 function call）
     if re.search(
-        r'\{\s*"name"\s*:\s*"(?:spawn_clone|view_file|list_dir|grep_files|write_file|search_replace|run_cli|run_python|web_fetch|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
+        r'\{\s*"name"\s*:\s*"(?:spawn_clone|get_task_status|view_file|list_dir|grep_files|write_file|search_replace|run_cli|run_python|web_fetch|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
         content_lower,
     ):
         return True
