@@ -31,6 +31,8 @@ py-modules = [
   "ui_render",
   "ui_assets_loader",
   "api_compat",
+  "admin_utils",
+  "task_manager",
 ]
 [tool.setuptools.package-data]
 "*" = ["ui_assets/*"]
