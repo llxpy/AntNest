@@ -5,11 +5,11 @@
 <h1 align="center">AntNest</h1>
 
 <p align="center">
-  <strong>Local AI Operations Assistant</strong>
+  <strong>Local AI Operations Platform</strong>
 </p>
 
 <p align="center">
-  File management · System automation · Process isolation · Persistent memory
+  Full system access · Complete shell integration · Process-level isolation · Persistent intelligence
 </p>
 
 <p align="center">
@@ -22,52 +22,84 @@
 
 ## What is AntNest?
 
-AntNest is a desktop AI assistant that operates directly on your local machine. Unlike cloud-based tools, it runs entirely on your hardware, manages your files, executes system commands, and automates routine tasks — all with process-level security.
+AntNest is a local AI operations platform that gives you complete control over your Windows environment through natural language. Unlike cloud-based AI tools, it runs entirely on your hardware with **full shell access** — network diagnostics, system monitoring, file operations, process management, and virtually any command-line task.
 
-**The queen thinks. The workers execute. Your system stays safe.**
+**Your AI. Your machine. Your rules.**
 
 ---
 
-## Capabilities
+## Core Capabilities
 
 <table>
 <tr>
 <td width="50%">
 
-### 📁 File Operations
-- Read, write, search, and patch any local file
-- Batch file processing across directories
-- Content-aware file analysis
-- Real-time file monitoring
+### 🌐 Network Operations
+- Full network stack access
+- `ping`, `traceroute`, `nslookup`, `netstat`
+- WiFi/Bluetooth scanning and management
+- Network interface configuration
+- Bandwidth monitoring
+- Connection diagnostics
 
 </td>
 <td width="50%">
 
-### ⚡ System Automation
-- Execute commands via isolated worker processes
-- Automated system diagnostics
-- Batch operations with task tracking
-- Scheduled maintenance tasks
+### 🖥 System Administration
+- Complete process management
+- Service control and monitoring
+- System information retrieval
+- Disk and memory management
+- Registry operations
+- Scheduled task management
 
 </td>
 </tr>
 <tr>
 <td>
 
-### 🧠 Persistent Memory
-- Conversation history preserved across sessions
-- Knowledge accumulation over time
-- Task state tracking (pending → running → done → verified)
-- Session auto-recovery
+### 📁 File Operations
+- Read, write, search, patch any file
+- Batch operations across directories
+- Content-aware analysis
+- Real-time monitoring
+- Archive management
+- Symbolic link handling
+
+</td>
+<td>
+
+### 🧠 Persistent Intelligence
+- Cross-session memory
+- Knowledge accumulation
+- Task state tracking
+- Context preservation
+- Learning from interactions
+- Session recovery
+
+</td>
+</tr>
+<tr>
+<td>
+
+### ⚡ Command Execution
+- **Full shell access** — PowerShell, CMD, Git Bash
+- Worker isolation for safe execution
+- Parallel task processing
+- Output capture and parsing
+- Error handling and recovery
+- Environment variable management
 
 </td>
 <td>
 
 ### 🔒 Security Architecture
-- Process-level isolation for all operations
-- Dangerous command filtering
+- Process-level isolation
+- Command filtering (configurable)
 - Temporary execution environments
 - Instant resource cleanup
+- Audit logging
+- Permission controls
 
 </td>
 </tr>
@@ -75,47 +107,96 @@ AntNest is a desktop AI assistant that operates directly on your local machine. 
 
 ---
 
+## Shell Integration
+
+AntNest provides **complete shell access** — not a sandboxed subset, but the full power of your command line:
+
+```powershell
+# Network diagnostics
+Test-NetConnection -ComputerName google.com -Port 443
+Get-NetAdapter | Select-Object Name, Status, LinkSpeed
+netstat -an | Select-String "ESTABLISHED"
+
+# System monitoring
+Get-Process | Sort-Object CPU -Descending | Select-Object -First 10
+Get-WmiObject Win32_OperatingSystem | Select-Object FreePhysicalMemory
+Get-Service | Where-Object {$_.Status -eq "Running"}
+
+# File operations
+Get-ChildItem -Recurse -Include *.log | Select-Object FullName, Length, LastWriteTime
+Select-String -Path "C:\Logs\*.log" -Pattern "ERROR" | Measure-Object
+
+# Process management
+Stop-Process -Name "notepad" -Force
+Start-Process "powershell" -ArgumentList "-NoExit", "-Command", "& {Get-Help}"
+```
+
+**The queen decides what to run. Workers execute it in isolation. Your system stays clean.**
+
+---
+
 ## Architecture
 
 ```
-              ┌─────────────────────┐
-              │     Queen (LLM)     │
-              │   Reasoning Layer   │
-              │   Never Executes    │
-              └──────────┬──────────┘
-                         │
-         ┌───────────────┼───────────────┐
-         │               │               │
-         ▼               ▼               ▼
-    ┌─────────┐    ┌─────────┐    ┌─────────┐
-    │ Worker  │    │ Worker  │    │ Worker  │
-    │   #1    │    │   #2    │    │   #3    │
-    │ (temp)  │    │ (temp)  │    │ (temp)  │
-    └─────────┘    └─────────┘    └─────────┘
-         │               │               │
-         └───────────────┼───────────────┘
-                         │
-                    ┌────▼────┐
-                    │ Result  │
-                    │ Return  │
-                    └─────────┘
+                    ┌─────────────────────────────────┐
+                    │         USER INTERFACE          │
+                    │      Desktop GUI (pywebview)     │
+                    └───────────────┬─────────────────┘
+                                    │
+                    ┌───────────────▼─────────────────┐
+                    │          QUEEN (LLM)            │
+                    │    Reasoning · Planning · Memory │
+                    │    Never Executes Directly      │
+                    └───────────────┬─────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+    ┌─────────▼─────────┐ ┌─────────▼─────────┐ ┌─────────▼─────────┐
+    │     WORKER #1     │ │     WORKER #2     │ │     WORKER #3     │
+    │  Isolated Process │ │  Isolated Process │ │  Isolated Process │
+    │  Temp Directory   │ │  Temp Directory   │ │  Temp Directory   │
+    │  Single Command   │ │  Single Command   │ │  Single Command   │
+    └─────────┬─────────┘ └─────────┬─────────┘ └─────────┬─────────┘
+              │                     │                     │
+              └─────────────────────┼─────────────────────┘
+                                    │
+                    ┌───────────────▼─────────────────┐
+                    │        RESULT AGGREGATION       │
+                    │    Capture · Parse · Return      │
+                    └───────────────┬─────────────────┘
+                                    │
+                    ┌───────────────▼─────────────────┐
+                    │          CLEANUP                 │
+                    │   Kill Process · Delete Temp     │
+                    │   Preserve Results Only          │
+                    └─────────────────────────────────┘
 ```
 
 **Design Principles:**
-- **Isolation** — Each operation runs in a disposable subprocess
-- **Defense-in-depth** — Multiple security layers protect your system
-- **State machine** — Every task is tracked from creation to completion
-- **Memory persistence** — Knowledge accumulates across sessions
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Isolation** | Each command runs in a disposable subprocess |
+| **Safety** | Multiple security layers protect your system |
+| **Tracking** | Every task has a lifecycle: pending → running → done → verified |
+| **Memory** | Knowledge persists across sessions |
+| **Power** | Full shell access, not a restricted subset |
 
 ---
 
 ## Installation
 
-### Windows Installer (Recommended)
+### Option 1: Windows Installer (Recommended)
 
-Download `AntNest-Setup.exe` from [**Releases**](https://github.com/llxpy/AntNest/releases) — includes Python, uv, and all dependencies.
+Download `AntNest-Setup.exe` from [**Releases**](https://github.com/llxpy/AntNest/releases).
 
-### Portable
+Includes:
+- Python 3.12+ runtime
+- All dependencies
+- Desktop shortcut
+- Start menu integration
+
+### Option 2: Portable
 
 ```bash
 git clone https://github.com/llxpy/AntNest.git
@@ -123,46 +204,55 @@ cd AntNest
 uv run python prototype_antnest.py
 ```
 
-### Direct Launch
+### Option 3: Direct Launch
 
 Run `AntNest.exe` from the repository root — zero configuration required.
 
 ---
 
-## Supported Providers
+## Supported AI Providers
 
-| Provider | Integration |
-|----------|-------------|
-| DeepSeek | Full support with reasoning |
-| Kimi / Moonshot | Optimized parameters |
-| MiniMax | Fast inference |
-| OpenAI | Standard API |
-| Ollama / Local | Full compatibility |
+| Provider | Status | Notes |
+|----------|--------|-------|
+| DeepSeek | ✅ Full | Reasoning support, thinking_mode=auto |
+| Kimi / Moonshot | ✅ Full | Optimized parameters |
+| MiniMax | ✅ Full | Fast inference |
+| OpenAI | ✅ Full | Standard API |
+| Ollama / Local | ✅ Full | Any OpenAI-compatible endpoint |
 
 ---
 
 ## How It Works
 
-1. **You ask** — Natural language instruction via the desktop GUI
-2. **Queen reasons** — LLM analyzes the request and plans execution
-3. **Workers execute** — Isolated subprocesses handle the actual operations
-4. **Results return** — Output captured and displayed
-5. **Cleanup** — Temporary environments destroyed, system state preserved
+```
+1.  USER ASKS         "Check my network connection and list running services"
+         ↓
+2.  QUEEN REASONS     Analyzes request → Plans execution → Decides commands
+         ↓
+3.  WORKERS EXECUTE   Isolated subprocess runs: Test-NetConnection, Get-Service
+         ↓
+4.  RESULTS RETURN    Output captured, parsed, formatted
+         ↓
+5.  CLEANUP           Temporary environments destroyed
+         ↓
+6.  USER SEES         Clean, formatted response with actionable information
+```
 
 ---
 
-## Security
+## Security Model
 
-AntNest implements defense-in-depth security:
+AntNest implements **defense-in-depth** security:
 
-| Layer | Protection |
-|-------|------------|
-| Instruction | LLM prompted to use safe commands only |
-| Filter | Regex blocks destructive patterns |
-| Isolation | Workers run in temporary directories |
-| Cleanup | Processes killed, temp files deleted after each task |
+| Layer | Protection | Configurable |
+|-------|------------|--------------|
+| **LLM Prompt** | Model instructed to use safe commands | ❌ |
+| **Command Filter** | Regex blocks destructive patterns | ✅ |
+| **Process Isolation** | Workers run in temp directories | ❌ |
+| **Resource Cleanup** | Processes killed, temp files deleted | ❌ |
+| **Audit Logging** | All commands logged for review | ✅ |
 
-> ⚠️ **Note**: Process-level isolation, not container sandboxing. See `antnest_clone_worker.py` for the complete filter list.
+> ⚠️ **Note**: Process-level isolation, not container sandboxing. See `antnest_clone_worker.py` for the complete filter list and configuration options.
 
 ---
 
@@ -192,6 +282,20 @@ AntNest/
 ├── tests/                     # Test suite
 └── android/                   # Mobile companion (experimental)
 ```
+
+---
+
+## Use Cases
+
+| Scenario | Example Commands |
+|----------|------------------|
+| **Network Diagnostics** | `ping`, `tracert`, `nslookup`, `netstat`, `ipconfig` |
+| **System Monitoring** | `Get-Process`, `Get-Service`, `Get-WmiObject` |
+| **File Management** | `Get-ChildItem`, `Copy-Item`, `Select-String` |
+| **Process Control** | `Start-Process`, `Stop-Process`, `Get-Process` |
+| **Service Management** | `Get-Service`, `Start-Service`, `Restart-Service` |
+| **Registry Operations** | `Get-ItemProperty`, `Set-ItemProperty` |
+| **Scheduled Tasks** | `Get-ScheduledTask`, `Register-ScheduledTask` |
 
 ---
 
