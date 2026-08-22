@@ -41,6 +41,7 @@ AntNest is a local AI operations platform that gives you complete control over y
 - Network interface configuration
 - Bandwidth monitoring
 - Connection diagnostics
+- Port scanning and analysis
 
 </td>
 <td width="50%">
@@ -52,6 +53,7 @@ AntNest is a local AI operations platform that gives you complete control over y
 - Disk and memory management
 - Registry operations
 - Scheduled task management
+- Environment variable control
 
 </td>
 </tr>
@@ -65,17 +67,43 @@ AntNest is a local AI operations platform that gives you complete control over y
 - Real-time monitoring
 - Archive management
 - Symbolic link handling
+- **Encryption/Decryption** — AES, RSA, base64
+- **File integrity** — checksums, hash verification
 
 </td>
 <td>
 
-### 🧠 Persistent Intelligence
-- Cross-session memory
-- Knowledge accumulation
-- Task state tracking
-- Context preservation
-- Learning from interactions
-- Session recovery
+### 🎮 Game Optimization
+- Config file modification
+- Game settings optimization
+- Performance tuning
+- Save file management
+- Mod installation support
+- Launch parameter optimization
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 💾 Disk Management
+- Partition analysis and reporting
+- Disk space monitoring
+- Cleanup and optimization
+- Backup verification
+- Drive health monitoring
+- Storage allocation analysis
+
+</td>
+<td>
+
+### 🔧 Hardware Inspection
+- CPU temperature and usage
+- GPU information and monitoring
+- RAM utilization analysis
+- Storage health (S.M.A.R.T.)
+- Network adapter details
+- Peripheral device management
 
 </td>
 </tr>
@@ -93,6 +121,19 @@ AntNest is a local AI operations platform that gives you complete control over y
 </td>
 <td>
 
+### 🧠 Persistent Intelligence
+- Cross-session memory
+- Knowledge accumulation
+- Task state tracking
+- Context preservation
+- Learning from interactions
+- Session recovery
+
+</td>
+</tr>
+<tr>
+<td>
+
 ### 🔒 Security Architecture
 - Process-level isolation
 - Command filtering (configurable)
@@ -100,6 +141,17 @@ AntNest is a local AI operations platform that gives you complete control over y
 - Instant resource cleanup
 - Audit logging
 - Permission controls
+
+</td>
+<td>
+
+### 📊 Monitoring & Diagnostics
+- Real-time system monitoring
+- Performance baseline tracking
+- Anomaly detection
+- Resource usage alerts
+- Health check automation
+- Trend analysis
 
 </td>
 </tr>
@@ -122,9 +174,31 @@ Get-Process | Sort-Object CPU -Descending | Select-Object -First 10
 Get-WmiObject Win32_OperatingSystem | Select-Object FreePhysicalMemory
 Get-Service | Where-Object {$_.Status -eq "Running"}
 
-# File operations
-Get-ChildItem -Recurse -Include *.log | Select-Object FullName, Length, LastWriteTime
-Select-String -Path "C:\Logs\*.log" -Pattern "ERROR" | Measure-Object
+# File operations with encryption
+$plainText = "sensitive data"
+$encrypted = $plainText | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString
+$encrypted | Out-File "encrypted.txt"
+$secureString = Get-Content "encrypted.txt" | ConvertTo-SecureString
+$BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureString)
+$plainText = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+
+# Hardware inspection
+Get-WmiObject Win32_Processor | Select-Object Name, LoadPercentage
+Get-WmiObject Win32_VideoController | Select-Object Name, AdapterRAM
+Get-PhysicalDisk | Select-Object FriendlyName, MediaType, HealthStatus
+
+# Disk management
+Get-Partition | Select-Object DriveLetter, Size, Type
+Get-Volume | Select-Object DriveLetter, FileSystemLabel, SizeRemaining, Size
+Get-Disk | Select-Object Number, FriendlyName, PartitionStyle, Size
+
+# Game config optimization
+$configPath = "$env:LOCALAPPDATA\Game\Config.ini"
+Get-Content $configPath | ForEach-Object {
+    if ($_ -match "Quality=(\d+)") {
+        $_ -replace "Quality=\d+", "Quality=3"
+    } else { $_ }
+} | Set-Content $configPath
 
 # Process management
 Stop-Process -Name "notepad" -Force
@@ -292,10 +366,15 @@ AntNest/
 | **Network Diagnostics** | `ping`, `tracert`, `nslookup`, `netstat`, `ipconfig` |
 | **System Monitoring** | `Get-Process`, `Get-Service`, `Get-WmiObject` |
 | **File Management** | `Get-ChildItem`, `Copy-Item`, `Select-String` |
+| **File Encryption** | `ConvertTo-SecureString`, `AES`, `RSA` operations |
 | **Process Control** | `Start-Process`, `Stop-Process`, `Get-Process` |
 | **Service Management** | `Get-Service`, `Start-Service`, `Restart-Service` |
 | **Registry Operations** | `Get-ItemProperty`, `Set-ItemProperty` |
 | **Scheduled Tasks** | `Get-ScheduledTask`, `Register-ScheduledTask` |
+| **Hardware Inspection** | `Get-WmiObject Win32_Processor`, `Get-PhysicalDisk` |
+| **Disk Management** | `Get-Partition`, `Get-Volume`, `Get-Disk` |
+| **Game Optimization** | Config modification, performance tuning |
+| **Backup & Recovery** | File verification, checksum validation |
 
 ---
 
