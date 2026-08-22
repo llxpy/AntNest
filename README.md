@@ -1,8 +1,8 @@
 # AntNest
 
-> An AI coding agent with a queen/worker architecture, desktop GUI, and process-level sandboxing.
+> Your local AI operations assistant — file management, system monitoring, task automation, all in a secure sandbox.
 
-AntNest is a desktop AI assistant that runs shell commands through isolated worker ants instead of executing them directly. The queen (LLM) thinks and plans; the workers execute in throwaway environments and are destroyed after each task.
+AntNest is a desktop AI assistant that operates on your local machine through isolated worker processes. It can read, write, search, and manage files; execute system commands; monitor WiFi, Bluetooth, and sensors; and automate routine tasks — all with process-level security that keeps your system safe.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-brightgreen.svg)](https://www.python.org/)
@@ -18,12 +18,27 @@ AntNest is a desktop AI assistant that runs shell commands through isolated work
 
 ---
 
-## Why Queen/Worker?
+## What It Does
 
-Traditional AI agents call the shell directly from the LLM process. One bad command poisons the environment. AntNest adds an isolation layer:
+| Capability | Desktop (Windows) | Android |
+|------------|-------------------|---------|
+| 📁 File management | Read / write / search / patch any local file | Search phone files (SAF) |
+| 🔍 System commands | Execute via isolated worker ants | — |
+| 📶 WiFi monitoring | Full access | Scan + status |
+| 🔵 Bluetooth | Full access | Scan + pair info |
+| 📊 Sensor data | — | Accelerometer, gyroscope, light, etc. |
+| 🧠 Persistent memory | Session + NEST.md | Short-term + compressed long-term |
+| 🖥 GUI | Dark webview desktop UI | Dark native Android UI |
+| 🔒 Security | Process isolation + command filter | App sandbox |
+
+---
+
+## Why Worker Ants?
+
+Traditional AI agents execute commands directly from the LLM process. One bad command poisons the entire environment. AntNest adds an isolation layer:
 
 ```
-LLM reasoning -> spawn worker ant -> worker runs shell -> result returned -> worker destroyed
+LLM reasoning -> spawn worker ant -> worker runs command -> result returned -> worker destroyed
 ```
 
 | | Traditional Agent | AntNest |
@@ -31,9 +46,9 @@ LLM reasoning -> spawn worker ant -> worker runs shell -> result returned -> wor
 | Execution | In the agent process | In a throwaway subprocess |
 | Environment | Commands pollute cwd | Worker cwd is a temp directory, deleted after use |
 | Concurrency | Serial | Multiple workers can run in parallel |
-| Security | LLM controls shell directly | LLM -> command filter -> process isolation -> destroy |
+| Security | LLM controls shell directly | LLM → command filter → process isolation → destroy |
 
-> **Disclaimer**: Process-level isolation, not a container sandbox. Safety is defense-in-depth: LLM instruction following -> command regex filter -> process isolation + destroy.
+> **Disclaimer**: Process-level isolation, not a container sandbox. Safety is defense-in-depth: LLM instruction following → command regex filter → process isolation → destroy.
 
 ---
 
@@ -67,17 +82,11 @@ Download [`android/app-debug.apk`](android/app-debug.apk) and install on your ph
 2. Tap ⚙ in the top-right → configure API (DeepSeek / Kimi / OpenAI)
 3. Enter your API key → save → start chatting
 
-**Features:**
-- AI chat (OpenAI-compatible API)
-- Persistent memory with auto-compression (30 messages → summary)
-- Dark theme UI (#0D1117, GitHub style)
-- Tool framework: WiFi / Bluetooth / sensors / file search (in development)
-
 See [`android/README.md`](android/README.md) for full details.
 
 ---
 
-## Configuration (Desktop)
+## Configuration
 
 Copy `config.example.json` to `config.json` and fill in your API key:
 
@@ -126,11 +135,12 @@ AntNest auto-detects your API provider and adapts parameters:
   Destroy   Destroy   Destroy
 ```
 
-- **Queen** - LLM-powered core. Reasons, manages memory, spawns workers. Never executes commands.
-- **Workers** - Isolated subprocess copies. Temporary directory, one command, result returned, destroyed.
-- **Bridge** - Python <-> WebView2 GUI bridge. Settings, model detection, UI updates.
-- **Skills** - Pluggable knowledge modules (.baim files or SKILL.md directories).
-- **MCP** - Model Context Protocol client for external tool integrations.
+- **Queen** — LLM-powered core. Reasons, manages memory, spawns workers. Never executes commands directly.
+- **Workers** — Isolated subprocess copies. Temporary directory, one command, result returned, destroyed.
+- **Bridge** — Python ↔ WebView2 GUI bridge. Settings, model detection, UI updates.
+- **Task Manager** — State machine tracking task lifecycle: `pending → running → done → verified`.
+- **Skills** — Pluggable knowledge modules (.baim files or SKILL.md directories).
+- **MCP** — Model Context Protocol client for external tool integrations.
 
 ---
 
@@ -168,10 +178,10 @@ AntNest/
 
 ## Security Model
 
-1. **LLM instruction following** - The model is prompted to use safe commands only.
-2. **Dangerous command regex filter** - Hardcoded blocks for destructive patterns.
-3. **Process isolation** - Workers run in isolated subprocesses with temporary directories.
-4. **Instant destroy** - Output captured, process killed, temp directory deleted.
+1. **LLM instruction following** — The model is prompted to use safe commands only.
+2. **Dangerous command regex filter** — Hardcoded blocks for destructive patterns.
+3. **Process isolation** — Workers run in isolated subprocesses with temporary directories.
+4. **Instant destroy** — Output captured, process killed, temp directory deleted.
 
 Defense-in-depth, not a guarantee. See `antnest_clone_worker.py` for the exact filter list.
 
