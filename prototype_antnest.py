@@ -169,15 +169,15 @@ def _read_app_version():
     return "0.0.0"
 APP_VERSION = _read_app_version()
 
-# 收款二维码目录（项目内 Page/，打包后随 app 分发，不依赖本机路径）。
+# 收款二维码目录（assets/donate/，打包后随 app 分发，不依赖本机路径）。
 # 点击「赞助作者」读取该目录里 WX/ZFB 二维码并展示；只匹配文件名含
 # wx/wechat/微信/zfb/alipay/支付宝 的图片，敏感/无关图片自动过滤。
 def _sponsor_dir():
     _base = os.path.dirname(os.path.abspath(__file__))
-    for _c in (os.path.join(_base, "Page"), os.path.join(_base, "..", "Page")):
+    for _c in (os.path.join(_base, "assets", "donate"), os.path.join(_base, "..", "assets", "donate")):
         if os.path.isdir(_c):
             return os.path.abspath(_c)
-    return os.path.join(_base, "Page")
+    return os.path.join(_base, "assets", "donate")
 SPONSOR_DIR = _sponsor_dir()
 
 

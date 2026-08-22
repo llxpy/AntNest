@@ -31,3 +31,9 @@ android/local.properties
 android/.idea/
 android/*.iml
 android/gradle/wrapper/gradle-wrapper.jar
+
+# Build artifacts
+*.apk
+AntNest_v*.exe
+
+# Compiled launcher（有意入库的：AntNest.exe）

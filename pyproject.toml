@@ -36,6 +36,6 @@ py-modules = [
 ]
 [tool.setuptools.package-data]
 "*" = ["ui_assets/*"]
-# 把项目内 Page/ 作为数据文件打包，uvx/whl 安装后仍在 site-packages/Page
+# 把项目内 assets/donate/ 作为数据文件打包，uvx/whl 安装后仍在 site-packages/assets/donate
 [tool.setuptools.data-files]
-Page = ["Page/*"]
+"assets/donate" = ["assets/donate/*"]

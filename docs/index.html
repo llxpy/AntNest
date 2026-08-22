@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AntNest - 本地 AI 运维平台</title>
+<meta name="description" content="AntNest — 基于蚁巢架构的本地 AI 运维平台。全系统访问、进程级隔离、持久记忆。一句话下达指令，蚁后拆解任务，工蚁并行执行。">
+<meta name="keywords" content="AntNest, AI agent, 本地AI, 运维, 自动化, 工蚁架构, Windows, Python">
+<meta property="og:title" content="AntNest - 本地 AI 运维平台">
+<meta property="og:description" content="基于蚁巢架构的本地 AI 运维平台。全系统访问、进程级隔离、持久记忆。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://llxpy.github.io/AntNest/">
+<style>
+/* ================================================================
+   AntNest GitHub Pages - Complete single-file site
+   ================================================================ */
+:root {
+  --bg:#080d18; --bg2:#040810; --accent:#4CC9F0; --accent-dim:rgba(76,201,240,0.10);
+  --accent-glow:rgba(76,201,240,0.25); --card:rgba(14,22,40,0.72);
+  --card-border:rgba(255,255,255,0.06); --card-hover:rgba(255,255,255,0.10);
+  --text:#e4ecff; --muted:#6e7f96; --success:#3ddc97; --warn:#ff6b6b;
+  --surface:rgba(255,255,255,0.03); --topbar-bg:rgba(8,13,24,0.78);
+  --bubble-queen:rgba(255,255,255,0.04); --bubble-user:rgba(76,201,240,0.14);
+  --agent-glow:rgba(76,201,240,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:"SF Pro Display","Segoe UI",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.6;color:var(--text);
+  background:linear-gradient(175deg,var(--bg),var(--bg2));
+  -webkit-font-smoothing:antialiased;
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important}}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:1100px;margin:0 auto;padding:0 24px}
+
+/* ---- Nav ---- */
+.nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:1px solid var(--card-border);background:var(--topbar-bg);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4)}
+.nav-brand{display:flex;align-items:center;font-size:17px;font-weight:700;letter-spacing:.3px;color:var(--text)}
+.nav-brand svg{width:18px;height:18px;margin-right:7px;fill:var(--accent);filter:drop-shadow(0 0 5px var(--accent-glow))}
+.nav-links{display:flex;gap:20px;margin-left:32px;font-size:13px;color:var(--muted)}
+.nav-links a{color:var(--muted);transition:color .15s}.nav-links a:hover{color:var(--text);text-decoration:none}
+.nav-spacer{flex:1}
+.nav-github{display:flex;align-items:center;gap:6px;border:1px solid rgba(76,201,240,0.40);color:var(--accent);background:rgba(76,201,240,0.06);border-radius:8px;padding:7px 14px;font-size:13px;font-weight:500;transition:all .15s}
+.nav-github:hover{background:rgba(76,201,240,0.14);text-decoration:none}
+.nav-github svg{width:16px;height:16px;fill:currentColor}
+@media(max-width:700px){.nav-links{display:none}}
+
+/* ---- Hero ---- */
+.hero{padding:80px 0 60px;text-align:center}
+.hero-tag{display:inline-block;font-size:12px;color:var(--accent);border:1px solid rgba(76,201,240,0.30);border-radius:999px;padding:4px 14px;margin-bottom:20px;background:rgba(76,201,240,0.06)}
+.hero h1{font-size:clamp(32px,5vw,52px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:16px}
+.hero h1 .ant{display:inline-block;animation:breathe 3s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.4}50%{opacity:1}}
+.hero-sub{font-size:clamp(16px,2.5vw,20px);color:var(--muted);max-width:600px;margin:0 auto 32px;line-height:1.5}
+.hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-primary{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;text-decoration:none!important;box-shadow:0 2px 12px rgba(76,201,240,0.30)}
+.btn-primary:hover{box-shadow:0 4px 20px rgba(76,201,240,0.45);transform:translateY(-2px)}
+.btn-outline{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--card-border);color:var(--text);background:transparent;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:500;cursor:pointer;transition:all .2s;text-decoration:none!important}
+.btn-outline:hover{border-color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);text-decoration:none}
+
+/* ---- Architecture SVG ---- */
+.arch{margin:60px auto 0;max-width:720px}
+.arch-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:20px;text-align:center}
+.arch svg{width:100%;height:auto}
+
+/* ---- Features ---- */
+.features{padding:80px 0}
+.section-head{text-align:center;margin-bottom:48px}
+.section-head h2{font-size:clamp(24px,3.5vw,36px);font-weight:700;margin-bottom:8px}
+.section-head p{color:var(--muted);font-size:16px;max-width:500px;margin:0 auto}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.feature-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:28px 24px;transition:border-color .2s,box-shadow .2s}
+.feature-card:hover{border-color:var(--card-hover);box-shadow:0 4px 20px rgba(0,0,0,0.20)}
+.feature-icon{font-size:28px;margin-bottom:12px}
+.feature-card h3{font-size:16px;font-weight:700;margin-bottom:8px}
+.feature-card p{color:var(--muted);font-size:14px;line-height:1.6}
+
+/* ---- Demo ---- */
+.demo-section{padding:60px 0 80px}
+.demo-frame{background:var(--card);border:1px solid var(--card-border);border-radius:20px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.30)}
+.demo-label{background:rgba(76,201,240,0.08);border-bottom:1px solid rgba(76,201,240,0.12);text-align:center;padding:10px;font-size:13px;color:var(--accent)}
+.demo-topbar{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--card-border);background:rgba(8,13,24,0.50)}
+.demo-topbar .brand{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+.demo-topbar svg{width:16px;height:16px;fill:var(--accent)}
+.demo-topbar .tag{font-size:10px;color:var(--muted);border:1px solid var(--card-border);border-radius:999px;padding:2px 8px}
+.demo-spacer{flex:1}
+.pill{font-size:10px;padding:3px 10px;border-radius:999px;font-weight:600;display:inline-flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);border:1px solid var(--card-border);background:var(--surface)}
+.pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.demo-main{display:grid;grid-template-columns:3fr 2fr;min-height:480px}
+@media(max-width:900px){.demo-main{grid-template-columns:1fr}.demo-monitor{display:none}}
+.demo-chat{display:flex;flex-direction:column;padding:16px;border-right:1px solid var(--card-border)}
+.demo-msgs{flex:1;overflow:auto;display:flex;flex-direction:column;padding:4px;gap:4px}
+.demo-monitor{display:flex;flex-direction:column;gap:10px;padding:16px;overflow-y:auto}
+.demo-monitor .card{background:rgba(255,255,255,0.02);border:1px solid var(--card-border);border-radius:12px;padding:12px 14px}
+.demo-monitor .card h2{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.demo-monitor .card h2::before{content:"";width:2px;height:10px;border-radius:2px;background:var(--accent);opacity:.5}
+.demo-panels{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.demo-empty{color:var(--muted);font-size:12px;text-align:center;padding:10px}
+.demo-log{display:flex;flex-direction:column;gap:3px;max-height:160px;overflow:auto}
+.demo-log .line{display:flex;gap:8px;align-items:baseline;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.015);font-size:11px;opacity:0;transition:opacity .3s}
+.demo-log .line.show{opacity:1}
+.demo-log .time{font-family:ui-monospace,Menlo,monospace;color:var(--muted);font-size:10px;white-space:nowrap;opacity:.7}
+.demo-log .tag{font-size:9px;padding:1px 5px;border-radius:4px;font-weight:600;white-space:nowrap}
+.demo-log .tag.sys{color:var(--accent);border:1px solid rgba(76,201,240,0.35);background:rgba(76,201,240,0.06)}
+.demo-log .tag.worker{color:var(--success);border:1px solid rgba(61,220,151,0.35);background:rgba(61,220,151,0.06)}
+.demo-input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--card-border);flex-shrink:0}
+.demo-scene-btn{flex:1;border:1px solid rgba(76,201,240,0.40);color:var(--accent);background:rgba(76,201,240,0.06);border-radius:8px;padding:10px 14px;font-size:13px;cursor:pointer;transition:all .15s;font-weight:500}
+.demo-scene-btn:hover{background:rgba(76,201,240,0.14);border-color:rgba(76,201,240,0.55)}
+.demo-scene-btn:disabled{opacity:.35;cursor:not-allowed}
+
+/* Demo bubbles */
+.bubble{max-width:90%;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.6;word-break:break-word;display:flex;gap:8px;align-items:flex-start;opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s}
+.bubble.show{opacity:1;transform:none}
+.bubble.user{align-self:flex-end;background:var(--bubble-user);border:1px solid rgba(76,201,240,0.25);flex-direction:row-reverse}
+.bubble.queen{align-self:flex-start;background:var(--bubble-queen);border:1px solid var(--card-border);position:relative;padding-left:14px}
+.bubble.queen::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:0 2px 2px 0;background:var(--accent);opacity:.45}
+.bubble.queen.streaming{border-color:rgba(76,201,240,0.18);box-shadow:0 0 16px var(--agent-glow)}
+.bubble-main{flex:1;min-width:0}.bubble-text{white-space:pre-wrap}
+.avatar{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.qa{background:var(--accent-dim);color:var(--accent);border:1px solid rgba(76,201,240,0.30)}
+.qa svg{width:14px;height:14px}
+.ua{background:var(--surface);color:var(--muted);border:1px solid var(--card-border);font-size:10px;font-weight:700}
+.think-block{margin:0 0 6px;border-radius:6px;border:1px solid rgba(76,201,240,0.10);background:rgba(76,201,240,0.03);padding:6px 10px;font-size:11px;line-height:1.5;color:var(--muted)}
+.think-title{font-size:10px;color:var(--accent);margin-bottom:3px;display:flex;align-items:center;gap:5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.think-title::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.5;animation:td 1.6s ease-in-out infinite}
+@keyframes td{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}
+.subtask{display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:8px;border:1px solid var(--card-border);background:rgba(255,255,255,0.02);margin-bottom:4px;opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s;font-size:12px}
+.subtask.show{opacity:1;transform:none}
+.subtask .idx{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--accent-dim);color:var(--accent);font-size:10px;font-weight:700;flex-shrink:0}
+.subtask .body{flex:1}.subtask .title{font-weight:600;font-size:12px}.subtask .worker{font-size:11px;color:var(--muted)}
+.wcard{padding:8px;border-radius:8px;border:1px solid var(--card-border);margin-bottom:4px;background:rgba(255,255,255,0.02);opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s;font-size:12px}
+.wcard.show{opacity:1;transform:none}
+.wcard .top{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.wcard .name{font-weight:600;font-size:12px}
+.wcard .status{font-size:10px;padding:1px 5px;border-radius:4px;font-weight:600}
+.wcard .status.running{color:var(--accent);border:1px solid rgba(76,201,240,0.35);background:rgba(76,201,240,0.08)}
+.wcard .status.done{color:var(--success);border:1px solid rgba(61,220,151,0.35);background:rgba(61,220,151,0.08)}
+
+/* ---- Install ---- */
+.install{padding:60px 0 80px}
+.install-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:700px){.install-grid{grid-template-columns:1fr}}
+.install-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:28px 24px}
+.install-card h3{font-size:16px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.install-card h3 .icon{font-size:20px}
+.install-card p{color:var(--muted);font-size:14px;margin-bottom:12px;line-height:1.6}
+.install-card code{display:block;background:rgba(0,0,0,0.30);border:1px solid var(--card-border);border-radius:8px;padding:12px 16px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:var(--accent);overflow-x:auto;white-space:pre}
+.req-list{list-style:none;padding:0}
+.req-list li{padding:6px 0;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.req-list li::before{content:"✓";color:var(--success);font-weight:700;font-size:13px}
+
+/* ---- Footer ---- */
+.footer{border-top:1px solid var(--card-border);padding:32px 0;text-align:center;color:var(--muted);font-size:13px}
+.footer a{color:var(--accent)}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.12) transparent}
+
+/* ---- Banner ---- */
+.demo-banner{background:rgba(76,201,240,0.08);border-bottom:1px solid rgba(76,201,240,0.15);text-align:center;padding:8px;font-size:12px;color:var(--accent);display:flex;align-items:center;justify-content:center;gap:6px}
+.demo-banner .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:bk 2s ease-in-out infinite}
+@keyframes bk{0%,100%{opacity:.3}50%{opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <a class="nav-brand" href="#">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/><ellipse cx="12" cy="18" rx="3.6" ry="4.4"/><path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+    AntNest
+  </a>
+  <div class="nav-links">
+    <a href="#features">功能</a>
+    <a href="#demo">体验</a>
+    <a href="#install">安装</a>
+    <a href="https://github.com/llxpy/AntNest/blob/main/README.md">文档</a>
+  </div>
+  <div class="nav-spacer"></div>
+  <a class="nav-github" href="https://github.com/llxpy/AntNest" target="_blank">
+    <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    GitHub
+  </a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-tag">v1.2.4 · MIT License · Windows + Android</div>
+    <h1><span class="ant">🐜</span> AntNest</h1>
+    <p class="hero-sub">基于蚁巢架构的本地 AI 运维平台。蚁后理解意图、拆解任务，工蚁隔离执行。全系统访问，不走云端。</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="https://github.com/llxpy/AntNest/releases" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"/><path d="M7.25 7.689V2a.75.75 0 011.5 0v5.689l1.97-1.969a.749.749 0 111.06 1.06l-3.25 3.25a.749.749 0 01-1.06 0L4.22 6.78a.749.749 0 111.06-1.06l1.97 1.969z"/></svg>
+        下载安装包
+      </a>
+      <a class="btn-outline" href="https://github.com/llxpy/AntNest" target="_blank">查看源码</a>
+    </div>
+
+    <!-- Architecture diagram -->
+    <div class="arch">
+      <div class="arch-title">工作原理</div>
+      <svg viewBox="0 0 720 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- User -->
+        <rect x="0" y="60" width="120" height="80" rx="12" fill="rgba(14,22,40,0.80)" stroke="rgba(255,255,255,0.08)"/>
+        <text x="60" y="92" text-anchor="middle" fill="#6e7f96" font-size="11" font-family="sans-serif">用户输入</text>
+        <text x="60" y="112" text-anchor="middle" fill="#e4ecff" font-size="13" font-weight="600" font-family="sans-serif">"分析C盘"</text>
+        <!-- Arrow 1 -->
+        <path d="M128 100 L188 100" stroke="#4CC9F0" stroke-width="2" stroke-dasharray="4 3" opacity="0.6"/>
+        <polygon points="186,96 194,100 186,104" fill="#4CC9F0" opacity="0.6"/>
+        <!-- Queen -->
+        <rect x="200" y="40" width="140" height="120" rx="12" fill="rgba(76,201,240,0.08)" stroke="rgba(76,201,240,0.30)" stroke-width="1.5"/>
+        <text x="270" y="70" text-anchor="middle" fill="#4CC9F0" font-size="11" font-weight="600" font-family="sans-serif">蚁后 QUEEN</text>
+        <text x="270" y="92" text-anchor="middle" fill="#6e7f96" font-size="10" font-family="sans-serif">理解意图</text>
+        <text x="270" y="108" text-anchor="middle" fill="#6e7f96" font-size="10" font-family="sans-serif">拆解子任务</text>
+        <text x="270" y="124" text-anchor="middle" fill="#6e7f96" font-size="10" font-family="sans-serif">派遣工蚁</text>
+        <text x="270" y="145" text-anchor="middle" fill="#4CC9F0" font-size="10" font-weight="600" font-family="sans-serif">🧠 思考 → 拆分</text>
+        <!-- Arrows to workers -->
+        <path d="M348 70 L400 40" stroke="#3ddc97" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.5"/>
+        <path d="M348 100 L400 100" stroke="#3ddc97" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.5"/>
+        <path d="M348 130 L400 160" stroke="#3ddc97" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.5"/>
+        <!-- Worker 1 -->
+        <rect x="408" y="18" width="120" height="48" rx="10" fill="rgba(61,220,151,0.06)" stroke="rgba(61,220,151,0.25)"/>
+        <text x="468" y="38" text-anchor="middle" fill="#3ddc97" font-size="10" font-weight="600" font-family="sans-serif">工蚁 1</text>
+        <text x="468" y="54" text-anchor="middle" fill="#6e7f96" font-size="9" font-family="sans-serif">扫描 C:\Users</text>
+        <!-- Worker 2 -->
+        <rect x="408" y="78" width="120" height="48" rx="10" fill="rgba(61,220,151,0.06)" stroke="rgba(61,220,151,0.25)"/>
+        <text x="468" y="98" text-anchor="middle" fill="#3ddc97" font-size="10" font-weight="600" font-family="sans-serif">工蚁 2</text>
+        <text x="468" y="114" text-anchor="middle" fill="#6e7f96" font-size="9" font-family="sans-serif">扫描 C:\Windows</text>
+        <!-- Worker 3 -->
+        <rect x="408" y="138" width="120" height="48" rx="10" fill="rgba(61,220,151,0.06)" stroke="rgba(61,220,151,0.25)"/>
+        <text x="468" y="158" text-anchor="middle" fill="#3ddc97" font-size="10" font-weight="600" font-family="sans-serif">工蚁 3</text>
+        <text x="468" y="174" text-anchor="middle" fill="#6e7f96" font-size="9" font-family="sans-serif">扫描 Program Files</text>
+        <!-- Arrow to result -->
+        <path d="M536 100 L590 100" stroke="#4CC9F0" stroke-width="2" stroke-dasharray="4 3" opacity="0.6"/>
+        <polygon points="588,96 596,100 588,104" fill="#4CC9F0" opacity="0.6"/>
+        <!-- Result -->
+        <rect x="600" y="50" width="120" height="100" rx="12" fill="rgba(14,22,40,0.80)" stroke="rgba(255,255,255,0.08)"/>
+        <text x="660" y="80" text-anchor="middle" fill="#6e7f96" font-size="11" font-family="sans-serif">汇总结果</text>
+        <text x="660" y="100" text-anchor="middle" fill="#e4ecff" font-size="10" font-family="sans-serif">1. AppData 48GB</text>
+        <text x="660" y="116" text-anchor="middle" fill="#e4ecff" font-size="10" font-family="sans-serif">2. Desktop 12GB</text>
+        <text x="660" y="132" text-anchor="middle" fill="#e4ecff" font-size="10" font-family="sans-serif">3. WinSxS 6.8GB</text>
+        <!-- Isolation badge -->
+        <rect x="420" y="192" width="88" height="20" rx="10" fill="rgba(255,107,107,0.10)" stroke="rgba(255,107,107,0.30)"/>
+        <text x="464" y="206" text-anchor="middle" fill="#ff6b6b" font-size="9" font-weight="600" font-family="sans-serif">🔒 进程隔离</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-head">
+      <h2>核心能力</h2>
+      <p>不只是聊天，而是能真正操作你系统的 AI 伙伴</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🖥️</div>
+        <h3>全系统访问</h3>
+        <p>完整 Shell 集成——不是沙箱子集。磁盘、注册表、网络、进程，蚁后都能碰。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>进程级隔离</h3>
+        <p>每个工蚁是独立 Python 进程。执行崩溃不影响主程序，安全边界清晰。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧠</div>
+        <h3>任务拆解</h3>
+        <p>蚁后自动将复杂指令拆分为子任务，派遣多个工蚁并行执行，最后汇总结果。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📦</div>
+        <h3>Skills 系统</h3>
+        <p>可扩展的技能包。选中 Skill 注入上下文，让蚁后获得专项能力——代码审查、文档生成等。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔌</div>
+        <h3>MCP 集成</h3>
+        <p>接入 MCP 服务器扩展工具链。文件系统、数据库、API——工蚁可以调用外部服务。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📱</div>
+        <h3>Android 客户端</h3>
+        <p>原生 Android 应用，Kotlin + Jetpack Compose。手机上也能调度蚁后。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Demo -->
+<section class="demo-section" id="demo">
+  <div class="container">
+    <div class="section-head">
+      <h2>交互体验</h2>
+      <p>点击下方场景按钮，观察蚁后拆解任务、工蚁执行的完整流程</p>
+    </div>
+    <div class="demo-frame">
+      <div class="demo-banner"><span class="dot"></span> 交互式演示 — 这是模拟动画，非真实运行</div>
+      <div class="demo-topbar">
+        <div class="brand">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/><ellipse cx="12" cy="18" rx="3.6" ry="4.4"/><path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+          AntNest
+        </div>
+        <span class="tag">v1.2.4</span>
+        <div class="demo-spacer"></div>
+        <span class="pill" id="status-pill">待命</span>
+      </div>
+      <div class="demo-main">
+        <div class="demo-chat">
+          <div class="demo-msgs" id="chat-msgs">
+            <div class="bubble queen show">
+              <span class="avatar qa"><svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/><ellipse cx="12" cy="18" rx="3.6" ry="4.4"/><path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></span>
+              <div class="bubble-main"><div class="bubble-text">AntNest 就绪。选择下方场景，观察蚁后如何拆解任务、派遣工蚁执行。</div></div>
+            </div>
+          </div>
+          <div class="demo-input">
+            <button class="demo-scene-btn" onclick="runScenario('cdisk')">💾 分析 C 盘</button>
+            <button class="demo-scene-btn" onclick="runScenario('registry')">🔍 检查注册表</button>
+            <button class="demo-scene-btn" onclick="runScenario('network')">🌐 网络诊断</button>
+          </div>
+        </div>
+        <div class="demo-monitor">
+          <div class="card"><h2>当前任务</h2><div id="task-title" style="color:var(--muted);font-size:12px">暂无任务</div></div>
+          <div class="demo-panels">
+            <div class="card"><h2>子任务</h2><div id="subtasks"><div class="demo-empty">暂无子任务</div></div></div>
+            <div class="card"><h2>工蚁</h2><div id="workers"><div class="demo-empty">工蚁空闲</div></div></div>
+          </div>
+          <div class="card"><h2>运行日志</h2><div class="demo-log" id="log"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Install -->
+<section class="install" id="install">
+  <div class="container">
+    <div class="section-head">
+      <h2>快速开始</h2>
+      <p>几分钟内启动你的第一个蚁后</p>
+    </div>
+    <div class="install-grid">
+      <div class="install-card">
+        <h3><span class="icon">📋</span> 系统要求</h3>
+        <ul class="req-list">
+          <li>Windows 10/11（64 位）</li>
+          <li>Python 3.12+</li>
+          <li>uv（首次运行自动安装）</li>
+          <li>WebView2 Runtime（Win11 自带）</li>
+        </ul>
+      </div>
+      <div class="install-card">
+        <h3><span class="icon">⚡</span> 安装包（推荐）</h3>
+        <p>下载 <a href="https://github.com/llxpy/AntNest/releases">AntNest-Setup.exe</a>，双击运行。自动安装依赖。</p>
+        <code>AntNest-Setup.exe → 双击 → 完成</code>
+      </div>
+      <div class="install-card">
+        <h3><span class="icon">🐍</span> 源码运行</h3>
+        <p>适合开发者。克隆仓库后用 uv 启动。</p>
+        <code>git clone https://github.com/llxpy/AntNest.git
+cd AntNest
+uv sync
+uv run python prototype_antnest.py</code>
+      </div>
+      <div class="install-card">
+        <h3><span class="icon">🤖</span> pip 安装</h3>
+        <p>通过 pip/uvx 安装为命令行工具。</p>
+        <code>pip install antnest
+# 或
+uvx antnest</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <p>
+      <a href="https://github.com/llxpy/AntNest" target="_blank">GitHub</a> ·
+      <a href="https://github.com/llxpy/AntNest/releases" target="_blank">下载</a> ·
+      <a href="https://github.com/llxpy/AntNest/blob/main/LICENSE" target="_blank">MIT License</a>
+    </p>
+    <p style="margin-top:8px;font-size:12px;color:rgba(255,255,255,0.3)">Made with 🐜 by <a href="https://github.com/llxpy" target="_blank" style="color:var(--muted)">llxpy</a></p>
+  </div>
+</footer>
+
+<script>
+// ================================================================
+// Animation engine
+// ================================================================
+const QA='<span class="avatar qa"><svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/><ellipse cx="12" cy="18" rx="3.6" ry="4.4"/><path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg></span>';
+const UA='<span class="avatar ua">你</span>';
+
+const S={
+cdisk:{
+  userMsg:"分析C盘，列出占用空间最大的5个目录及大小",
+  thinkText:"将任务拆分为并行扫描：C:\\Users、C:\\Windows、C:\\Program Files、C:\\ProgramData 以及根目录下各文件夹...",
+  subtasks:[{t:"扫描 C:\\Users",w:"工蚁-1"},{t:"扫描 C:\\Windows",w:"工蚁-2"},{t:"扫描 C:\\Program Files",w:"工蚁-3"}],
+  logs:[{tag:"sys",text:"任务启动：analyze_c_drive"},{tag:"worker",text:"[工蚁-1] 扫描 C:\\Users ... 发现 12 个目录"},{tag:"worker",text:"[工蚁-2] 扫描 C:\\Windows ... 发现 340 个目录"},{tag:"worker",text:"[工蚁-3] 扫描 C:\\Program Files ... 发现 89 个目录"},{tag:"worker",text:"[工蚁-1] 最大: AppData (48.2 GB), Desktop (12.1 GB)"},{tag:"worker",text:"[工蚁-2] 最大: WinSxS (6.8 GB), Installer (3.2 GB)"},{tag:"worker",text:"[工蚁-3] 最大: Common Files (4.1 GB), Chrome (2.8 GB)"},{tag:"sys",text:"全部工蚁完成，正在汇总结果..."}],
+  result:"C盘占用空间最大的5个目录：\n\n1. C:\\Users\\30426\\AppData   — 48.2 GB\n2. C:\\Users\\30426\\Desktop   — 12.1 GB\n3. C:\\Windows\\WinSxS        — 6.8 GB\n4. C:\\Program Files\\Common   — 4.1 GB\n5. C:\\Windows\\Installer     — 3.2 GB\n\n共扫描 441 个目录（3个工蚁并行执行）\n建议：对 Windows\\Installer 运行磁盘清理，可回收约 2 GB。"
+},
+registry:{
+  userMsg:"检查 Windows 注册表中是否有可疑的自启动项",
+  thinkText:"扫描 HKCU\\...\\Run 和 HKLM\\...\\Run 键值，交叉比对已知安全的发布者签名...",
+  subtasks:[{t:"扫描 HKCU 自启动项",w:"工蚁-1"},{t:"扫描 HKLM 自启动项",w:"工蚁-2"},{t:"扫描启动文件夹",w:"工蚁-3"}],
+  logs:[{tag:"sys",text:"任务启动：check_registry_autostart"},{tag:"worker",text:"[工蚁-1] HKCU\\...\\Run：发现 8 个条目"},{tag:"worker",text:"[工蚁-2] HKLM\\...\\Run：发现 14 个条目"},{tag:"worker",text:"[工蚁-3] 启动文件夹：发现 3 个条目"},{tag:"worker",text:"[工蚁-1] 标记：'QuickShare' — 无发布者签名"},{tag:"worker",text:"[工蚁-2] 标记：'SteamWebHelper' — 正常（Steam 组件）"},{tag:"worker",text:"[工蚁-1] 标记：'UnknownUpdater' — 声明路径下找不到二进制文件"},{tag:"sys",text:"分析完成，检测到 1 个可疑条目"}],
+  result:"注册表自启动项扫描完成。\n\n共扫描 3 个位置，发现 25 个条目。\n\n⚠ 可疑条目：\n\n  1. 'QuickShare' — 无数字签名，发布者未知\n     路径：C:\\ProgramData\\QuickShare\\qsagent.exe\n     建议：移除或进一步排查。\n\n  2. 'UnknownUpdater' — 声明路径下二进制文件缺失\n     路径：C:\\Users\\...\\AppData\\Local\\Temp\\ updater.exe\n     建议：清理此孤立条目。\n\n  ℹ 'SteamWebHelper' 虽被标记但已验证 — 合法 Steam 组件。"
+},
+network:{
+  userMsg:"对这台机器做一次完整的网络诊断",
+  thinkText:"采集网卡信息、DNS 解析、网关可达性，并执行到 8.8.8.8 的路由追踪...",
+  subtasks:[{t:"网卡信息采集",w:"工蚁-1"},{t:"DNS + Ping 测试",w:"工蚁-2"},{t:"路由追踪 8.8.8.8",w:"工蚁-3"}],
+  logs:[{tag:"sys",text:"任务启动：network_diagnostic"},{tag:"worker",text:"[工蚁-1] 2 个网卡：以太网 (1 Gbps)、Wi-Fi (802.11ac)"},{tag:"worker",text:"[工蚁-2] DNS：114.114.114.114 — 解析 google.com 耗时 12ms"},{tag:"worker",text:"[工蚁-2] 网关 192.168.1.1 — 可达 (2ms)"},{tag:"worker",text:"[工蚁-3] 路由追踪：8 跳，平均延迟 18ms"},{tag:"worker",text:"[工蚁-2] 公网 IP：120.xxx.xxx.xxx（北京）"},{tag:"worker",text:"[工蚁-1] Wi-Fi 信号：-45 dBm（优秀）"},{tag:"sys",text:"全部诊断完成"}],
+  result:"网络诊断报告：\n\n网卡：\n  以太网 — Intel I219-V, 1 Gbps, 已连接\n  Wi-Fi   — Intel AX201, 802.11ac, -45 dBm\n\nDNS：     114.114.114.114 (12ms)\n网关：    192.168.1.1 (2ms)\n公网：    120.xxx.xxx.xxx（北京）\n\n路由追踪到 8.8.8.8：8 跳，平均 18ms\n\n状态：✅ 全部检查通过，网络健康。"
+}};
+
+let busy=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const ts=()=>{const d=new Date();return d.toTimeString().slice(0,8)};
+const clr=id=>{document.getElementById(id).innerHTML=""};
+
+function addLog(tag,text){
+  const l=document.getElementById('log'),d=document.createElement('div');
+  d.className='line';
+  d.innerHTML=`<span class="time">${ts()}</span><span class="tag ${tag}">${tag.toUpperCase()}</span><span>${text}</span>`;
+  l.appendChild(d);requestAnimationFrame(()=>d.classList.add('show'));l.scrollTop=l.scrollHeight;
+}
+function addBubble(text,think){
+  const m=document.getElementById('chat-msgs'),b=document.createElement('div');
+  b.className='bubble queen streaming';
+  let h=QA+'<div class="bubble-main">';
+  if(think)h+=`<div class="think-block"><div class="think-title">思考中</div><div>${text}</div></div>`;
+  else h+=`<div class="bubble-text">${text}</div>`;
+  b.innerHTML=h+'</div>';m.appendChild(b);requestAnimationFrame(()=>b.classList.add('show'));m.scrollTop=m.scrollHeight;
+}
+function addUser(text){
+  const m=document.getElementById('chat-msgs'),b=document.createElement('div');
+  b.className='bubble user';b.innerHTML=UA+`<div class="bubble-main"><div class="bubble-text">${text}</div></div>`;
+  m.appendChild(b);requestAnimationFrame(()=>b.classList.add('show'));m.scrollTop=m.scrollHeight;
+}
+function addSub(t,w,i){
+  const b=document.getElementById('subtasks');if(!i)b.innerHTML='';
+  const d=document.createElement('div');d.className='subtask';
+  d.innerHTML=`<span class="idx">${i+1}</span><div class="body"><div class="title">${t}</div><div class="worker">${w}</div></div>`;
+  b.appendChild(d);requestAnimationFrame(()=>d.classList.add('show'));
+}
+function addWC(name,task,st){
+  const b=document.getElementById('workers'),d=document.createElement('div');d.className='wcard';
+  d.innerHTML=`<div class="top"><span class="name">${name}</span><span class="status ${st}">${st==='running'?'运行中':'完成'}</span></div><div style="font-size:11px;color:var(--muted)">${task}</div>`;
+  b.appendChild(d);requestAnimationFrame(()=>d.classList.add('show'));
+}
+function setStatus(t,a){const p=document.getElementById('status-pill');p.textContent=t;p.className=a?'pill active':'pill'}
+
+async function runScenario(k){
+  if(busy)return;busy=true;
+  const s=S[k];
+  document.querySelectorAll('.demo-scene-btn').forEach(b=>b.disabled=true);
+  clr('subtasks');clr('workers');clr('log');
+  document.getElementById('task-title').textContent=s.userMsg.length>50?s.userMsg.slice(0,50)+'...':s.userMsg;
+  setStatus('思考中',true);
+  addUser(s.userMsg);await sleep(500);
+  addBubble(s.thinkText,true);addLog('sys','蚁后收到任务，正在拆解...');await sleep(1500);
+  addLog('sys','派遣 '+s.subtasks.length+' 个工蚁...');setStatus('执行中',true);
+  for(let i=0;i<s.subtasks.length;i++){addSub(s.subtasks[i].t,s.subtasks[i].w,i);addWC(s.subtasks[i].w,s.subtasks[i].t,'running');await sleep(300)}
+  await sleep(600);
+  for(const l of s.logs){addLog(l.tag,l.text);await sleep(280)}
+  await sleep(400);
+  document.querySelectorAll('#workers .wcard .status').forEach(c=>{c.className='status done';c.textContent='完成'});
+  await sleep(300);
+  const tb=document.querySelector('.bubble.queen.streaming');if(tb)tb.classList.remove('streaming');
+  addBubble(s.result,false);addLog('sys','任务完成。');setStatus('待命',false);busy=false;
+  document.querySelectorAll('.demo-scene-btn').forEach(b=>b.disabled=false);
+}
+</script>
+</body>
+</html>

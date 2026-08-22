@@ -75,8 +75,8 @@ Source: "{#SourceDir}\AntNest.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: ship templates, NOT the dev config.json (which holds the real API key). Templates have empty api_key.
 Source: ".\config.template.json";   DestDir: "{app}"; DestName: "config.json";   Flags: ignoreversion onlyifdoesntexist
 Source: ".\ui_config.template.json"; DestDir: "{app}"; DestName: "ui_config.json"; Flags: ignoreversion onlyifdoesntexist
-; ---- donation QR codes (sponsor popup; in project Page/, shipped with installer) ----
-Source: "{#SourceDir}\Page\*"; DestDir: "{app}\Page"; Flags: ignoreversion recursesubdirs
+; ---- donation QR codes (sponsor popup; in assets/donate/, shipped with installer) ----
+Source: "{#SourceDir}\assets\donate\*"; DestDir: "{app}\assets\donate"; Flags: ignoreversion recursesubdirs
 
 [Dirs]
 ; Create an empty Skills folder on install; force-remove on uninstall
