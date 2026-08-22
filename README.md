@@ -1,64 +1,121 @@
-# AntNest
+<p align="center">
+  <strong>🐜</strong>
+</p>
 
-> Your local AI operations assistant — file management, system monitoring, task automation, all in a secure sandbox.
+<h1 align="center">AntNest</h1>
 
-AntNest is a desktop AI assistant that operates on your local machine through isolated worker processes. It can read, write, search, and manage files; execute system commands; monitor WiFi, Bluetooth, and sensors; and automate routine tasks — all with process-level security that keeps your system safe.
+<p align="center">
+  <strong>Local AI Operations Assistant</strong>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-brightgreen.svg)](https://www.python.org/)
+<p align="center">
+  File management · System automation · Process isolation · Persistent memory
+</p>
 
----
-
-## Platforms
-
-| Platform | Status | Language | Path |
-|----------|--------|----------|------|
-| **Windows Desktop** | v1.2.3 stable | Python + pywebview | `/` (root) |
-| **Android** | v1.0.0 beta | Kotlin + XML | [`/android/`](android/) |
-
----
-
-## What It Does
-
-| Capability | Desktop (Windows) | Android |
-|------------|-------------------|---------|
-| 📁 File management | Read / write / search / patch any local file | Search phone files (SAF) |
-| 🔍 System commands | Execute via isolated worker ants | — |
-| 📶 WiFi monitoring | Full access | Scan + status |
-| 🔵 Bluetooth | Full access | Scan + pair info |
-| 📊 Sensor data | — | Accelerometer, gyroscope, light, etc. |
-| 🧠 Persistent memory | Session + NEST.md | Short-term + compressed long-term |
-| 🖥 GUI | Dark webview desktop UI | Dark native Android UI |
-| 🔒 Security | Process isolation + command filter | App sandbox |
+<p align="center">
+  <a href="https://github.com/llxpy/AntNest/releases"><img src="https://img.shields.io/badge/Windows-v1.2.3-blue?logo=windows" alt="Windows"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="License"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-yellow?logo=python" alt="Python"></a>
+</p>
 
 ---
 
-## Why Worker Ants?
+## What is AntNest?
 
-Traditional AI agents execute commands directly from the LLM process. One bad command poisons the entire environment. AntNest adds an isolation layer:
+AntNest is a desktop AI assistant that operates directly on your local machine. Unlike cloud-based tools, it runs entirely on your hardware, manages your files, executes system commands, and automates routine tasks — all with process-level security.
+
+**The queen thinks. The workers execute. Your system stays safe.**
+
+---
+
+## Capabilities
+
+<table>
+<tr>
+<td width="50%">
+
+### 📁 File Operations
+- Read, write, search, and patch any local file
+- Batch file processing across directories
+- Content-aware file analysis
+- Real-time file monitoring
+
+</td>
+<td width="50%">
+
+### ⚡ System Automation
+- Execute commands via isolated worker processes
+- Automated system diagnostics
+- Batch operations with task tracking
+- Scheduled maintenance tasks
+
+</td>
+</tr>
+<tr>
+<td>
+
+### 🧠 Persistent Memory
+- Conversation history preserved across sessions
+- Knowledge accumulation over time
+- Task state tracking (pending → running → done → verified)
+- Session auto-recovery
+
+</td>
+<td>
+
+### 🔒 Security Architecture
+- Process-level isolation for all operations
+- Dangerous command filtering
+- Temporary execution environments
+- Instant resource cleanup
+
+</td>
+</tr>
+</table>
+
+---
+
+## Architecture
 
 ```
-LLM reasoning -> spawn worker ant -> worker runs command -> result returned -> worker destroyed
+              ┌─────────────────────┐
+              │     Queen (LLM)     │
+              │   Reasoning Layer   │
+              │   Never Executes    │
+              └──────────┬──────────┘
+                         │
+         ┌───────────────┼───────────────┐
+         │               │               │
+         ▼               ▼               ▼
+    ┌─────────┐    ┌─────────┐    ┌─────────┐
+    │ Worker  │    │ Worker  │    │ Worker  │
+    │   #1    │    │   #2    │    │   #3    │
+    │ (temp)  │    │ (temp)  │    │ (temp)  │
+    └─────────┘    └─────────┘    └─────────┘
+         │               │               │
+         └───────────────┼───────────────┘
+                         │
+                    ┌────▼────┐
+                    │ Result  │
+                    │ Return  │
+                    └─────────┘
 ```
 
-| | Traditional Agent | AntNest |
-|---|---|---|
-| Execution | In the agent process | In a throwaway subprocess |
-| Environment | Commands pollute cwd | Worker cwd is a temp directory, deleted after use |
-| Concurrency | Serial | Multiple workers can run in parallel |
-| Security | LLM controls shell directly | LLM → command filter → process isolation → destroy |
-
-> **Disclaimer**: Process-level isolation, not a container sandbox. Safety is defense-in-depth: LLM instruction following → command regex filter → process isolation → destroy.
+**Design Principles:**
+- **Isolation** — Each operation runs in a disposable subprocess
+- **Defense-in-depth** — Multiple security layers protect your system
+- **State machine** — Every task is tracked from creation to completion
+- **Memory persistence** — Knowledge accumulates across sessions
 
 ---
 
-## Quick Start (Desktop)
+## Installation
 
-### Option A: Windows Installer
+### Windows Installer (Recommended)
 
-Download `AntNest-Setup.exe` from [Releases](https://github.com/llxpy/AntNest/releases). It bundles Python, uv, and all dependencies.
+Download `AntNest-Setup.exe` from [**Releases**](https://github.com/llxpy/AntNest/releases) — includes Python, uv, and all dependencies.
 
-### Option B: Portable (uv)
+### Portable
 
 ```bash
 git clone https://github.com/llxpy/AntNest.git
@@ -66,128 +123,50 @@ cd AntNest
 uv run python prototype_antnest.py
 ```
 
-`uv` handles the virtual environment and dependencies automatically.
+### Direct Launch
 
-### Option C: Compiled Launcher
-
-`AntNest.exe` in the repo root is a self-contained launcher (ps2exe). It auto-installs dependencies on first run and starts the desktop UI with zero console windows.
+Run `AntNest.exe` from the repository root — zero configuration required.
 
 ---
 
-## Quick Start (Android)
+## Supported Providers
 
-Download [`android/app-debug.apk`](android/app-debug.apk) and install on your phone.
-
-1. Open → splash screen → auto-navigate to chat
-2. Tap ⚙ in the top-right → configure API (DeepSeek / Kimi / OpenAI)
-3. Enter your API key → save → start chatting
-
-See [`android/README.md`](android/README.md) for full details.
-
----
-
-## Configuration
-
-Copy `config.example.json` to `config.json` and fill in your API key:
-
-```json
-{
-  "api": {
-    "base_url": "https://api.deepseek.com/v1",
-    "model_name": "deepseek-chat",
-    "api_key": "«redacted:sk-…»"
-  },
-  "agent": {
-    "max_depth": 2,
-    "max_clones": { "0": 10, "1": 5, "2": 3 }
-  }
-}
-```
-
-No real keys are shipped in the repo. The installer provides an empty template.
-
-### Multi-Model Support
-
-AntNest auto-detects your API provider and adapts parameters:
-
-| Provider | Behavior |
-|---|---|
-| DeepSeek | thinking_mode=auto, keeps reasoning_content |
-| Kimi / Moonshot | temperature fixed to 1.0, thinking disabled, strict message keys |
-| MiniMax | thinking disabled, /models check skipped |
-| OpenAI | Default parameters |
-| Local (Ollama etc.) | openai_compat profile |
+| Provider | Integration |
+|----------|-------------|
+| DeepSeek | Full support with reasoning |
+| Kimi / Moonshot | Optimized parameters |
+| MiniMax | Fast inference |
+| OpenAI | Standard API |
+| Ollama / Local | Full compatibility |
 
 ---
 
-## Architecture
+## How It Works
 
-```
-        Queen (LLM)
-  Reasoning / Memory / Decision
-  Never touches Shell directly
-     |        |        |
-  spawn    spawn    spawn
-     |        |        |
-  Worker-1  Worker-2  Worker-3
-  Run cmd   Run cmd   Run cmd
-  Return    Return    Return
-  Destroy   Destroy   Destroy
-```
-
-- **Queen** — LLM-powered core. Reasons, manages memory, spawns workers. Never executes commands directly.
-- **Workers** — Isolated subprocess copies. Temporary directory, one command, result returned, destroyed.
-- **Bridge** — Python ↔ WebView2 GUI bridge. Settings, model detection, UI updates.
-- **Task Manager** — State machine tracking task lifecycle: `pending → running → done → verified`.
-- **Skills** — Pluggable knowledge modules (.baim files or SKILL.md directories).
-- **MCP** — Model Context Protocol client for external tool integrations.
+1. **You ask** — Natural language instruction via the desktop GUI
+2. **Queen reasons** — LLM analyzes the request and plans execution
+3. **Workers execute** — Isolated subprocesses handle the actual operations
+4. **Results return** — Output captured and displayed
+5. **Cleanup** — Temporary environments destroyed, system state preserved
 
 ---
 
-## Project Structure
+## Security
 
-```
-AntNest/
-├── AntNest.py                 # Full agent (standalone)
-├── prototype_antnest.py       # GUI entry point (pywebview)
-├── antnest_bridge.py          # Python <-> WebView2 bridge
-├── antnest_clone_worker.py    # Worker ant spawn/isolation
-├── antnest_session.py         # Conversation session management
-├── code_tools.py              # File read/write/patch tools
-├── mcp_client.py              # MCP stdio client
-├── api_compat.py              # Multi-provider API compatibility
-├── skills_loader.py           # Skills plugin loader
-├── phtmlwin.py                # Minimal pywebview GUI framework
-├── task_manager.py            # Task state machine (pending→running→done→verified)
-├── installer/                 # Inno Setup + PowerShell bootstrapper
-├── tests/                     # pytest test suite
-├── tools/                     # release_check.ps1
-├── android/                   # Android version (Kotlin)
-│   ├── app/src/main/java/com/antnest/app/
-│   │   ├── MainActivity.kt    # Chat UI
-│   │   ├── ApiClient.kt       # OpenAI-compatible API client
-│   │   ├── MemoryManager.kt   # Persistent memory + compression
-│   │   └── ...
-│   ├── app-debug.apk          # Pre-built APK
-│   └── README.md
-├── AntNest.exe                # Compiled launcher (ps2exe)
-└── config.example.json        # Template (no real keys)
-```
+AntNest implements defense-in-depth security:
+
+| Layer | Protection |
+|-------|------------|
+| Instruction | LLM prompted to use safe commands only |
+| Filter | Regex blocks destructive patterns |
+| Isolation | Workers run in temporary directories |
+| Cleanup | Processes killed, temp files deleted after each task |
+
+> ⚠️ **Note**: Process-level isolation, not container sandboxing. See `antnest_clone_worker.py` for the complete filter list.
 
 ---
 
-## Security Model
-
-1. **LLM instruction following** — The model is prompted to use safe commands only.
-2. **Dangerous command regex filter** — Hardcoded blocks for destructive patterns.
-3. **Process isolation** — Workers run in isolated subprocesses with temporary directories.
-4. **Instant destroy** — Output captured, process killed, temp directory deleted.
-
-Defense-in-depth, not a guarantee. See `antnest_clone_worker.py` for the exact filter list.
-
----
-
-## Running Tests
+## Testing
 
 ```bash
 python -m pytest tests/ -q
@@ -195,6 +174,27 @@ python -m pytest tests/ -q
 
 ---
 
+## Project Structure
+
+```
+AntNest/
+├── AntNest.py                 # Core agent engine
+├── prototype_antnest.py       # Desktop GUI entry
+├── antnest_bridge.py          # GUI ↔ Python bridge
+├── antnest_clone_worker.py    # Worker isolation system
+├── antnest_session.py         # Session management
+├── task_manager.py            # Task state machine
+├── code_tools.py              # File operations toolkit
+├── api_compat.py              # Multi-provider API layer
+├── mcp_client.py              # MCP tool integration
+├── phtmlwin.py                # Minimal GUI framework
+├── installer/                 # Windows installer
+├── tests/                     # Test suite
+└── android/                   # Mobile companion (experimental)
+```
+
+---
+
 ## License
 
-[MIT](LICENSE) - Copyright (c) 2026 LLXPY
+[MIT](LICENSE) — Copyright © 2026 LLXPY
