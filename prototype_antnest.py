@@ -138,10 +138,20 @@ from phtmlwin import Win, ui
 import antnest_bridge as bridge
 from ui_assets_loader import load_css, load_js
 import ui_render
+import ctypes
+
+# 检测管理员权限
+try:
+    _is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+except Exception:
+    _is_admin = False
 
 app = Win(title="AntNest · 在暗面构建", width=1260, height=800,
           gui=os.environ.get("ANT_WEBVIEW_GUI") or None,
           icon=os.path.join(os.path.dirname(os.path.abspath(__file__)), "antnest.ico"))
+
+# 设置管理员模式标记
+app._is_admin = _is_admin
 
 core = bridge.AntNestCore()
 

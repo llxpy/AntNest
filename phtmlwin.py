@@ -196,7 +196,27 @@ _PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
-<style>{css}</style>
+<style>
+{css}
+/* 管理员模式 IME 修复：确保输入法候选框能正常显示 */
+/* Windows UAC 提升后 WebView2 的 IME 候选窗可能被遮挡 */
+input, textarea, [contenteditable] {
+    ime-mode: active !important;
+    -webkit-ime-mode: active !important;
+    -ms-ime-mode: active !important;
+}
+/* 确保输入框不使用 z-index 遮挡 IME 窗口 */
+input:focus, textarea:focus {
+    z-index: auto !important;
+    position: relative !important;
+}
+/* 修复 WebView2 在管理员模式下的 IME 候选框位置 */
+@supports (-webkit-overflow-scrolling: touch) {
+    input, textarea {
+        -webkit-ime-mode: active;
+    }
+}
+</style>
 </head>
 <body>
 {body}
@@ -224,6 +244,7 @@ class Win:
         self._gui = gui               # pywebview 渲染后端：None=自动(Windows→edgechromium)
                                        #   / "edgechromium"(WebView2) / "cef"(CEF，IME 候选窗可靠)
         self._window = None
+        self._is_admin = False        # 管理员模式标记（用于 IME 修复）
 
     # ---- 声明式 API ----
     def css(self, css: str):
@@ -341,6 +362,28 @@ class Win:
             start_kwargs["icon"] = self.icon
         if self._gui:
             start_kwargs["gui"] = self._gui
+
+        # 管理员模式 IME 修复：设置用户数据目录和 WebView2 参数
+        # Windows UAC 提升后 WebView2 的 IME 候选窗无法正常显示
+        # 解决方案：设置独立的用户数据目录并启用 IME 支持
+        import ctypes
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            is_admin = False
+
+        if is_admin:
+            self._is_admin = True
+            # 设置 WebView2 用户数据目录（避免与非管理员进程冲突）
+            user_data_dir = os.path.join(
+                os.environ.get("LOCALAPPDATA", ""),
+                "AntNest", "WebView2_Data_Admin"
+            )
+            os.makedirs(user_data_dir, exist_ok=True)
+            os.environ["WEBVIEW2_USER_DATA_FOLDER"] = user_data_dir
+            print(f"[PHtmlWin] 管理员模式：WebView2 用户数据目录 -> {user_data_dir}")
+            print(f"[PHtmlWin] 管理员模式：IME 修复已启用")
+
         # 最小化到任务栏：关闭窗口时最小化而非退出
         self._minimize_on_close = True
         self._on_close_callback = None
