@@ -26,6 +26,7 @@ import antnest_clone_worker
 import antnest_session as session_mod
 import memory_retrieval
 from api_compat import effective_temperature, resolve_api_profile, sanitize_messages_for_api
+import admin_utils
 
 # ====================== 路径解析 ======================
 _resolved = Path(__file__).resolve()
@@ -94,6 +95,19 @@ if not ANT_API_KEY:
     sys.exit(1)
 
 COMMON_HEADER = {"User-Agent": "AntNest", "Authorization": f"Bearer {ANT_API_KEY}"}
+
+# ====================== 管理员模式初始化 ======================
+# 检测管理员权限，修复输入法，显示警告
+_admin_info = admin_utils.get_admin_status()
+if _admin_info["is_admin"]:
+    print(f"\n{'='*60}")
+    print(f"⚠️  AntNest 正在以管理员权限运行")
+    print(f"{'='*60}")
+    print(f"管理员模式下可执行系统级操作")
+    print(f"危险操作将需要用户确认后才会执行")
+    print(f"{'='*60}\n")
+    # 修复输入法问题
+    admin_utils.fix_ime_for_admin()
 
 
 def _config_bool(val, default=False) -> bool:
@@ -929,6 +943,18 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
             ),
         }, ensure_ascii=False)
 
+    # ====== 管理员模式：危险命令确认 ======
+    if _admin_info["is_admin"]:
+        analysis = admin_utils.analyze_command(command)
+        if analysis["is_dangerous"] and analysis["confirmation_required"]:
+            confirmed, user_input = admin_utils.get_user_confirmation(command)
+            if not confirmed:
+                return json.dumps({
+                    "status": "cancelled",
+                    "error": f"用户取消执行危险命令：{analysis['description']}",
+                    "user_input": user_input
+                }, ensure_ascii=False)
+
     # ====== 任务状态管理 ======
     from task_manager import get_task_manager, TaskStatus
     tm = get_task_manager()
@@ -956,7 +982,7 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
     # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(THIS_FILE, clone_script)
-    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py", "task_manager.py"):
+    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py", "task_manager.py", "admin_utils.py"):
         _src = os.path.join(THIS_DIR, _dep)
         if os.path.isfile(_src):
             shutil.copy2(_src, os.path.join(clone_dir, _dep))
