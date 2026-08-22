@@ -338,6 +338,7 @@ class Win:
             self._start_browser()
 
     def _start_webview(self) -> None:
+        import os
         import webview
 
         page = self.render()
