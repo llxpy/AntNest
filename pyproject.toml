@@ -1,6 +1,6 @@
 [project]
 name = "antnest"
-version = "1.2.4"
+version = "1.3.0"
 description = "AntNest - an AI coding agent with a queen/worker (ant) architecture and a desktop UI"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -26,6 +26,8 @@ py-modules = [
   "skills_loader",
   "mcp_client",
   "memory_retrieval",
+  "antnest_runtime_state",
+  "memory_tree",
   "antnest_clone_worker",
   "antnest_session",
   "ui_render",
@@ -33,9 +35,17 @@ py-modules = [
   "api_compat",
   "admin_utils",
   "task_manager",
+  "antnest_config",
+  "antnest_schemas",
+  "antnest_queen",
+  "antnest_memory",
+  "antnest_llm",
+  "antnest_loop",
+  "antnest_toolforge",
+  "model_capabilities",
 ]
 [tool.setuptools.package-data]
-"*" = ["ui_assets/*"]
+"*" = ["ui_assets/*", "prompts/*"]
 # 把项目内 assets/donate/ 作为数据文件打包，uvx/whl 安装后仍在 site-packages/assets/donate
 [tool.setuptools.data-files]
 "assets/donate" = ["assets/donate/*"]

@@ -58,6 +58,17 @@ Source: "{#SourceDir}\api_compat.py";            DestDir: "{app}"; Flags: ignore
 Source: "{#SourceDir}\memory_retrieval.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\task_manager.py";          DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\admin_utils.py";           DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\memory_tree.py";          DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\model_capabilities.py";    DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_runtime_state.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_config.py";        DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_schemas.py";       DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_queen.py";         DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_memory.py";        DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_llm.py";           DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_loop.py";          DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_toolforge.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\prompts\*";                DestDir: "{app}\prompts"; Flags: ignoreversion recursesubdirs
 Source: "{#SourceDir}\pyproject.toml";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\uv.lock";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignoreversion

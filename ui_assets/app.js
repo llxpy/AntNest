@@ -21,10 +21,14 @@ function scrollChat(){
 }
 var streamBubbleEl=null;
 var QUEEN_AVATAR_HTML='<span class="avatar queen-avatar">'
-  +'<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
-  +'<circle cx="12" cy="5.5" r="2.6"/><circle cx="12" cy="11" r="2"/>'
-  +'<ellipse cx="12" cy="18" rx="3.6" ry="4.4"/>'
-  +'<path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
+  +'<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">'
+  +'<path d="M12 2.4 L20.3 7.2 V16.8 L12 21.6 L3.7 16.8 V7.2 Z" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.45"/>'
+  +'<ellipse cx="12" cy="17" rx="3.5" ry="4.2" fill="currentColor"/>'
+  +'<ellipse cx="10.6" cy="15.9" rx="1.5" ry="2.1" fill="#ffffff" fill-opacity="0.18"/>'
+  +'<circle cx="12" cy="11.2" r="1.9" fill="currentColor"/>'
+  +'<circle cx="12" cy="6.9" r="2.4" fill="currentColor"/>'
+  +'<path d="M10.5 5.2 C9.3 3.5 7.9 2.9 6.6 3 M13.5 5.2 C14.7 3.5 16.1 2.9 17.4 3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
+  +'<path d="M7.5 9.3 L5.5 7.5 M7.7 11.6 L5.1 10.3 M7.4 14.1 L4.8 14.8 M16.5 9.3 L18.5 7.5 M16.3 11.6 L18.9 10.3 M16.6 14.1 L19.2 14.8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>'
   +'</svg></span>';
 function startStreamBubble(){
   var old=document.getElementById("stream-bubble");
@@ -36,7 +40,8 @@ function startStreamBubble(){
   streamBubbleEl.id="stream-bubble";
   streamBubbleEl.innerHTML=QUEEN_AVATAR_HTML
     +'<div class="bubble-main">'
-    +'<div class="think-block" id="stream-think-wrap" style="display:none">'
+    +'<div class="bubble-meta"><span class="bm-dot"></span><span class="bm-label">蚁后 · Queen</span></div>'
+    +'<div class="think-block" id="stream-think-wrap">'
     +'<div class="think-title">深度思考</div><div class="think-body" id="stream-think"></div></div>'
     +'<div class="bubble-text" id="stream-text"></div>'
     +'</div>';
@@ -63,6 +68,22 @@ function appendStreamText(t){
   scrollChat();
 }
 function finalizeStreamBubble(){
+  streamBubbleEl=null;
+  scrollChat();
+}
+function preserveInterruptedBubble(reason){
+  var bubble=document.getElementById("stream-bubble");
+  if(!bubble) return;
+  bubble.classList.add("interrupt-note");
+  var title=bubble.querySelector(".think-title");
+  if(title) title.textContent="已保存的中断摘要";
+  var text=bubble.querySelector("#stream-text");
+  if(text && !text.textContent.trim()) text.textContent="本轮在用户主动停止后暂停，下一轮会先理解停止原因。";
+  if(reason){
+    var body=bubble.querySelector("#stream-think");
+    if(body && !body.textContent.trim()) body.textContent=reason;
+    ensureStreamThink();
+  }
   streamBubbleEl=null;
   scrollChat();
 }
@@ -270,15 +291,21 @@ function fmtTime(ts){
 function renderSessions(list){
   var box=document.getElementById("sessions-list"); if(!box) return;
   setSessionsHint("");
-  if(!list || !list.length){ box.innerHTML='<div class="muted" style="padding:20px 4px;text-align:center">还没有历史会话，发送第一条消息后会自动保存。</div>'; return; }
+  if(!list || !list.length){ box.innerHTML='<div class="muted" style="grid-column:1/-1;padding:24px;text-align:center">还没有历史会话，发送第一条消息后会自动保存。</div>'; return;}
   box.innerHTML=list.map(function(s){
     var id=escHtml(s.id), time=fmtTime(s.time), prev=escHtml(s.preview||"");
-    return '<div class="session-item">'
-      +'<div class="session-info" onclick="loadSession(\''+id+'\')" title="点击恢复该会话">'
-      +'<div class="session-preview">'+prev+'</div>'
-      +'<div class="session-meta">'+time+' · '+s.count+' 条消息 · '+s.size_kb+' KB</div>'
+    return '<div class="session-card">'
+      +'<div class="session-card-head">'
+      +'<span class="session-time">'+time+'</span>'
+      +'<span class="session-count">'+s.count+' 条</span>'
       +'</div>'
-      +'<button class="session-del" onclick="deleteSession(\''+id+'\')" title="删除该会话">×</button>'
+      +'<div class="session-preview">'+prev+'</div>'
+      +'<div class="session-meta">'+s.size_kb+' KB · '+s.count+' 条消息</div>'
+      +'<div class="session-actions">'
+      +'<button class="btn" onclick="openSessionView(\''+id+'\')" title="只读查看该会话内容">查看</button>'
+      +'<button class="btn ghost" onclick="loadSession(\''+id+'\')" title="将该会话恢复为当前上下文">恢复上下文</button>'
+      +'<button class="btn ghost session-del" onclick="deleteSession(\''+id+'\')" title="删除该会话">×</button>'
+      +'</div>'
       +'</div>';
   }).join("");
 }
@@ -325,8 +352,25 @@ function setTheme(key){
   if(a)a.classList.add("active");
   var h=document.getElementById("set-theme");
   if(h)h.value=key;
+  var row=document.getElementById("custom-color-row");
+  if(row) row.style.display=(key==="custom")?"flex":"none";
+  if(key==="custom"){
+    var c=document.getElementById("set-custom-color");
+    if(c) applyCustomColor(c.value||"#4CC9F0");
+  }
   var bg=document.getElementById("set-bg_image");
   applyBg(bg?bg.value:"");
+}
+function applyCustomColor(v){
+  var ds=document.documentElement.style;
+  ds.setProperty("--user-accent", v||"#4CC9F0");
+  document.documentElement.setAttribute("data-theme","custom");
+  var h=document.getElementById("set-theme"); if(h)h.value="custom";
+  var c=document.getElementById("set-custom-color"); if(c)c.value=v||"#4CC9F0";
+  document.querySelectorAll(".theme-btn").forEach(function(b){b.classList.remove("active");});
+  var a=document.querySelector('.theme-btn[value="custom"]'); if(a)a.classList.add("active");
+  var row=document.getElementById("custom-color-row"); if(row)row.style.display="flex";
+  phwCall("custom_color",{value:v||"#4CC9F0"});
 }
 // 页面就绪后主动刷新 skills 列表：必须等 PHW 桥接就绪，否则 webview 模式下
 // window.PHW 尚未注入，会走失败的 fetch 回退导致刷新静默丢失。
@@ -424,4 +468,35 @@ function onSaveSettings(){
   if(th)appearance.theme=th.value;
   phwCall("save_settings",{settings:settings,appearance:appearance});
   closeSettings();
+}
+// 子任务 / 工蚁 展开模态（卡片式排列，显示执行状态）
+function openSubtasksModal(){
+  var m=document.getElementById("subtasks-modal"); if(m)m.classList.add("show");
+}
+function closeSubtasksModal(){
+  var m=document.getElementById("subtasks-modal"); if(m)m.classList.remove("show");
+}
+function openWorkersModal(){
+  var m=document.getElementById("workers-modal"); if(m)m.classList.add("show");
+}
+function closeWorkersModal(){
+  var m=document.getElementById("workers-modal"); if(m)m.classList.remove("show");
+}
+// ==== v1.3.0：会话只读查看（查看而非恢复上下文） ====
+function openSessionView(id){ if(!id) return; phwCall("session_view",{id:id}); }
+function openSessionViewModal(){ var m=document.getElementById("session-view-modal"); if(m)m.classList.add("show"); }
+function closeSessionViewModal(){ var m=document.getElementById("session-view-modal"); if(m)m.classList.remove("show"); }
+function renderSessionView(msgs){
+  var box=document.getElementById("session-view-body"); if(!box) return;
+  if(!msgs || !msgs.length){ box.innerHTML='<div class="muted" style="padding:20px;text-align:center">该会话暂无消息</div>'; return; }
+  box.innerHTML=msgs.map(function(m){
+    var cls = m.role==="user" ? "sv-item sv-user" : "sv-item sv-queen";
+    var av  = m.role==="user" ? "你" : "蚁后";
+    var body = '<div class="sv-text">'+(escHtml(m.text||""))+'</div>';
+    if(m.reasoning){
+      body = '<div class="think-block"><div class="think-title">深度思考</div>'
+           + '<div class="think-body">'+escHtml(m.reasoning)+'</div></div>' + body;
+    }
+    return '<div class="'+cls+'"><span class="sv-avatar">'+av+'</span><div class="sv-body">'+body+'</div></div>';
+  }).join("");
 }

@@ -136,6 +136,135 @@ class McpBridgeInitTest(unittest.TestCase):
         self.assertIsNone(core.mod.MCP_HUB)
 
 
+class McpRemoteSessionTest(unittest.TestCase):
+    """远程 MCP（http / sse）会话：JSON 与 SSE data: 响应解析。"""
+
+    def _with_http(self, bodies, fn):
+        class _FakeResp:
+            headers = {}
+            def __init__(self, body): self._body = body
+            def read(self): return self._body
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+        it = iter(bodies)
+        def _urlopen(req, timeout=None):
+            return _FakeResp(next(it))
+        with mock.patch("mcp_client.urllib.request.urlopen", side_effect=_urlopen):
+            sess = mc.HttpMcpSession("remote", "https://mcp.example.com/mcp")
+            return fn(sess)
+
+    def test_http_session_json_responses(self):
+        init = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}}).encode()
+        empty = b""
+        tools = json.dumps({
+            "jsonrpc": "2.0", "id": 3,
+            "result": {"tools": [{"name": "fetch_page", "description": "抓取网页"}]},
+        }).encode()
+        def _check(sess):
+            self.assertEqual(sess.list_tools()[0]["name"], "fetch_page")
+        self._with_http([init, empty, tools], _check)
+
+    def test_http_session_sse_data_body(self):
+        # 有些远端以 SSE data: 行返回 JSON-RPC 响应
+        init = b"data: " + json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}}
+        ).encode() + b"\n\n"
+        empty = b""
+        tools = (b"data: " + json.dumps({
+            "jsonrpc": "2.0", "id": 3,
+            "result": {"tools": [{"name": "sse_tool", "description": "sse tool"}]},
+        }).encode() + b"\n\n")
+        def _check(sess):
+            self.assertEqual(sess.list_tools()[0]["name"], "sse_tool")
+        self._with_http([init, empty, tools], _check)
+
+    def test_http_session_requires_http_url(self):
+        with self.assertRaises(mc.McpError):
+            mc.HttpMcpSession("bad", "not-a-url")
+
+    def test_sse_session_requires_http_url(self):
+        with self.assertRaises(mc.McpError):
+            mc.SseMcpSession("bad", "nope")
+
+
+class _FakeStream:
+    """SseMcpSession 启动时的假 SSE 流：空迭代 + 可关闭。"""
+    def __iter__(self):
+        return iter(())
+    def close(self):
+        pass
+
+
+class McpBuildSessionTest(unittest.TestCase):
+    def test_build_session_routes(self):
+        self.assertIsInstance(mc._build_session("a", {"url": "https://x/mcp", "type": "http"}), mc.HttpMcpSession)
+        with mock.patch("mcp_client.urllib.request.urlopen", return_value=_FakeStream()):
+            self.assertIsInstance(mc._build_session("b", {"url": "https://x/sse", "type": "sse"}), mc.SseMcpSession)
+        self.assertIsInstance(mc._build_session("c", {"command": "python"}), mc.McpSession)
+        self.assertIsInstance(mc._build_session("d", {"url": "https://x/mcp"}), mc.HttpMcpSession)
+        with self.assertRaises(mc.McpError):
+            mc._build_session("e", {})
+
+
+class McpHubMultiServerTest(unittest.TestCase):
+    def test_load_config_multiple_servers(self):
+        sess_a = mock.MagicMock()
+        sess_a.list_tools.return_value = [{"name": "tool_a", "description": "a"}]
+        sess_b = mock.MagicMock()
+        sess_b.list_tools.return_value = [{"name": "tool_b", "description": "b"}]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump({"servers": {"srv_a": {"url": "https://a/mcp"}, "srv_b": {"command": "py"}}}, f)
+            path = f.name
+        try:
+            with mock.patch("mcp_client._build_session", side_effect=[sess_a, sess_b]):
+                hub = mc.McpHub()
+                hub.load_config(path)
+            self.assertEqual(set(hub.sessions), {"srv_a", "srv_b"})
+            self.assertEqual(hub.tool_index["tool_a"], ("srv_a", "tool_a"))
+            self.assertEqual(hub.tool_index["tool_b"], ("srv_b", "tool_b"))
+            self.assertEqual(hub.server_status["srv_a"], "ready")
+            self.assertEqual(hub.server_status["srv_b"], "ready")
+        finally:
+            os.unlink(path)
+
+    def test_tool_name_conflict_generates_alias(self):
+        sess_a = mock.MagicMock()
+        sess_a.list_tools.return_value = [{"name": "grep", "description": "server a grep"}]
+        sess_b = mock.MagicMock()
+        sess_b.list_tools.return_value = [{"name": "grep", "description": "server b grep"}]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump({"servers": {"srv_a": {"url": "https://a/mcp"}, "srv_b": {"command": "py"}}}, f)
+            path = f.name
+        try:
+            with mock.patch("mcp_client._build_session", side_effect=[sess_a, sess_b]):
+                hub = mc.McpHub()
+                hub.load_config(path)
+            self.assertEqual(hub.tool_index["grep"], ("srv_a", "grep"))          # 首台保留
+            self.assertEqual(hub.tool_index["srv_b__grep"], ("srv_b", "grep"))  # 别名
+            catalog = {item["alias"]: item for item in hub.list_catalog()}
+            self.assertIn("srv_b__grep", catalog)
+        finally:
+            os.unlink(path)
+
+    def test_remote_failure_does_not_block_others(self):
+        def _fail(name, cfg):
+            raise mc.McpError(f"{name} init failed")
+        sess_b = mock.MagicMock()
+        sess_b.list_tools.return_value = [{"name": "ok_tool", "description": "ok"}]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump({"servers": {"bad": {"url": "https://bad/mcp"}, "good": {"command": "py"}}}, f)
+            path = f.name
+        try:
+            with mock.patch("mcp_client._build_session", side_effect=[_fail, sess_b]):
+                hub = mc.McpHub()
+                hub.load_config(path)
+            self.assertEqual(hub.server_status["bad"], "failed")
+            self.assertEqual(hub.server_status["good"], "ready")
+            self.assertIn("ok_tool", hub.tool_index)
+        finally:
+            os.unlink(path)
+
+
 class AntNestMcpToolsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

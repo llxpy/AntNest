@@ -136,7 +136,7 @@ if os.environ.get("ANT_INSTALLED") == "1":
 
 from phtmlwin import Win, ui
 import antnest_bridge as bridge
-from ui_assets_loader import load_css, load_js
+from ui_assets_loader import load_css, load_js, load_image_data_uri
 import ui_render
 import ctypes
 
@@ -146,9 +146,23 @@ try:
 except Exception:
     _is_admin = False
 
+# 应用/交互图标（favicon）：窗口图标由 antnest.ico 承担，页面 favicon 与顶栏品牌
+# 统一使用 favicon.ico（data-URI）与 48px 透明 PNG（app-icon.png），多端一致。
+def _load_favicon_data_uri():
+    try:
+        return load_image_data_uri("favicon.ico")
+    except Exception:
+        return ""
+
+try:
+    _APP_ICON_SRC = load_image_data_uri("app-icon.png")
+except Exception:
+    _APP_ICON_SRC = ""
+
 app = Win(title="AntNest · 在暗面构建", width=1260, height=800,
           gui=os.environ.get("ANT_WEBVIEW_GUI") or None,
-          icon=os.path.join(os.path.dirname(os.path.abspath(__file__)), "antnest.ico"))
+          icon=os.path.join(os.path.dirname(os.path.abspath(__file__)), "antnest.ico"),
+          favicon=_load_favicon_data_uri())
 
 # 设置管理员模式标记
 app._is_admin = _is_admin
@@ -168,6 +182,15 @@ def _read_app_version():
         pass
     return "0.0.0"
 APP_VERSION = _read_app_version()
+
+# 蚁后二次元形象（透明底 PNG，随 ui_assets/queen-avatar.png 分发）：
+# 以 data-URI 注入页面，顶栏品牌图与聊天气泡头像统一用它；读取失败回退 SVG。
+# 蚁后立绘（透明底全图），用于设置抽屉顶部与启动页空白位展示，不作头像。
+try:
+    _QUEEN_PORTRAIT_SRC = load_image_data_uri("queen-portrait.webp")
+except Exception:
+    _QUEEN_PORTRAIT_SRC = ""
+
 
 # 收款二维码目录（assets/donate/，打包后随 app 分发，不依赖本机路径）。
 # 点击「赞助作者」读取该目录里 WX/ZFB 二维码并展示；只匹配文件名含
@@ -308,11 +331,38 @@ SKILLS_CACHE = []      # 缓存的 skills 列表
 MAX_LOGS = 500
 MAX_CHATS = 500           # 内存中保留的聊天条数上限
 MAX_CHATS_RENDER = 300    # DOM 渲染的聊天条数上限
+MAX_PANEL_ITEMS = 6       # 监控面板内子任务/工蚁卡片渲染条数上限（防长列表卡顿）
+MAX_MODAL_ITEMS = 80      # 展开模态内子任务/工蚁卡片渲染条数上限（防任务多卡顿）
 
 # 配置由 bridge 统一管理：
 #   LLM / agent 参数 → config.json（AntNest 的嵌套结构，原样保留）
 #   外观 / UI-only   → ui_config.json
 SETTINGS, APPEARANCE = bridge.load_settings()
+
+
+def _ensure_memory_files():
+    """自检#1 修复：确保 NEST.md / hints.md 存在——
+    记忆线索层在文件缺失时会静默失效（显示"无"其实是文件不存在），
+    启动时补占位文件，让检索层始终有可建索引的载体。"""
+    home = os.environ.get("ANT_HOME") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".antnest")
+    for d in (home, os.path.join(os.getcwd(), ".antnest")):
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+    for p in (
+        os.path.join(home, "NEST.md"),
+        os.path.join(os.getcwd(), ".antnest", "hints.md"),
+    ):
+        if not os.path.exists(p):
+            try:
+                open(p, "w", encoding="utf-8").write("")
+            except Exception:
+                pass
+
+
+_ensure_memory_files()
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +397,8 @@ def _auto_load_last_session():
                 CHATS.append({"role": "user", "text": content, "reasoning": ""})
             elif role == "assistant" and content:
                 reasoning = msg.get("reasoning_content", "") or ""
+                if msg.get("stop_snapshot"):
+                    content = "⏹ 已保存的中断摘要\n" + content
                 CHATS.append({"role": "queen", "text": content, "reasoning": reasoning})
         # 限制条数
         if len(CHATS) > MAX_CHATS:
@@ -390,11 +442,15 @@ def _flush():
                 app.update("#chat-msgs", ui_render.render_chat(CHATS[-MAX_CHATS_RENDER:]))
                 app.run_js("scrollChat();")
         if "log" in parts:
-            _append_logs_to_dom()
+            # 状态卡只更新自身（任务/时间/状态/存活），不再连带重灌展开模态——
+            # 模态网格只在 subtasks/workers 变更时同步，任务多时避免每 150ms 全量重建卡顿。
+            _render_status_card()
         if "subtasks" in parts:
-            app.update("#subtasks", _subtasks_html())
+            app.update("#subtasks", _subtasks_html(limit=MAX_PANEL_ITEMS))
+            app.update("#subtasks-modal-list", _subtasks_html(limit=MAX_MODAL_ITEMS))
         if "workers" in parts:
-            app.update("#workers", _workers_html())
+            app.update("#workers", _workers_html(limit=MAX_PANEL_ITEMS))
+            app.update("#workers-modal-list", _workers_html(limit=MAX_MODAL_ITEMS))
         if "task" in parts:
             app.update("#task-title", _esc(STATE["task"]))
         if "skills" in parts:
@@ -520,10 +576,14 @@ def on_core_event(kind, p):
     try:
         if kind == "chat":
             role = p.get("role") if p.get("role") in ("user", "queen") else "queen"
+            chat_text = p.get("text", "")
+            if p.get("stop_snapshot"):
+                chat_text = "⏹ 已保存的中断摘要\n" + str(chat_text or "")
+            reasoning_text = p.get("reasoning") or _STREAM_BUF.get("reasoning") or ""
             CHATS.append({
                 "role": role,
-                "text": p.get("text", ""),
-                "reasoning": p.get("reasoning", "") or "",
+                "text": chat_text,
+                "reasoning": reasoning_text,
             })
             if role == "user":
                 STATE["task"] = p.get("text", "")[:200]
@@ -555,6 +615,10 @@ def on_core_event(kind, p):
                 _STREAM_BUF["active"] = False
                 app.run_js("finalizeStreamBubble();")
                 _mark("chat")
+            elif phase == "interrupted":
+                _STREAM_BUF["active"] = False
+                app.run_js(f"preserveInterruptedBubble({json.dumps(p.get('reasoning') or '')});")
+                _mark("chat")
             elif phase == "usage":
                 try:
                     u = json.loads(p.get("text") or "{}")
@@ -580,6 +644,19 @@ def on_core_event(kind, p):
                 _set_agent_status(f"{name} 出错了，稍等…")
             else:
                 _set_agent_status("蚁后正在处理结果…")
+
+        elif kind == "profile":
+            strategy = p.get("strategy") or {}
+            prefs = p.get("preferences") or []
+            _push_log(
+                "sys",
+                "动态画像已更新："
+                f"偏好信号 {', '.join(prefs[-5:]) or '暂无'}；"
+                f"验证 {float(strategy.get('verification', 0.55)):.2f}，"
+                f"自主推进 {float(strategy.get('autonomy', 0.45)):.2f}，"
+                f"高风险前询问 {float(strategy.get('clarification', 0.45)):.2f}",
+            )
+            _mark("log")
 
         elif kind == "skills":
             SKILLS_CACHE = p.get("list", [])
@@ -731,11 +808,53 @@ if (SETTINGS.get("llm_api_key") or "").strip():
 
 # ------------------------------------------------------------------ 渲染辅助
 def _esc(s):
+
     return ui_render.esc(s)
 
 
 def render_chat():
     return ui_render.render_chat(CHATS)
+
+
+def _render_status_card():
+    """结构化状态卡：当前任务 / 开始时间 / 工蚁创建与存活。不再流式滚动日志。"""
+    import time as _t
+    st_text = STATE.get("task", "尚未下达任务")
+    start_text = getattr(_render_status_card, "_start", "—")
+    state = "待命"
+    if _STREAM_BUF.get("active"):
+        state = "执行中"
+    try:
+        app.update("#st-task", _esc(st_text[:120]))
+        app.update("#st-start", _esc(start_text))
+        app.update("#st-state", _esc(state))
+    except Exception:
+        pass
+    rows = []
+    now = _t.time()
+    for w in WORKERS:
+        cid = w.get("id", "")
+        name = w.get("name", "") or cid[:8]
+        status = w.get("status", "run")
+        alive = status in ("run", "idle")
+        created = w.get("created_at", "")
+        if not created:
+            rows.append(
+                f'<div class="status-worker"><span class="sw-name">{_esc(name)}</span>'
+                f'<span class="pill {status}">{_esc(status)}</span>'
+                f'<span class="sw-meta">存活:{("是" if alive else "否")}</span></div>'
+            )
+            continue
+        rows.append(
+            f'<div class="status-worker"><span class="sw-name">{_esc(name)}</span>'
+            f'<span class="pill {status}">{_esc(status)}</span>'
+            f'<span class="sw-meta">创建 {_esc(created)} · 存活:{("是" if alive else "否")}</span></div>'
+        )
+    html = "".join(rows) if rows else '<div class="muted" style="font-size:12px">暂无工蚁</div>'
+    try:
+        app.update("#st-workers", html)
+    except Exception:
+        pass
 
 
 def render_log():
@@ -747,53 +866,73 @@ _STATUS_TEXT = {"ok": "完成", "run": "执行中", "fail": "打回", "idle": "�
 
 # 注意：app.update() 替换的是 innerHTML，所以「容器」和「内容」必须分开，
 # 否则每次刷新都会把带 id 的容器再套一层，产生嵌套。
-def _subtasks_html():
+def _clip(s, n=120):
+    """长文本截断：超长时截取前 n 字并加省略号（防卡片撑破/膨胀）。"""
+    s = str(s or "")
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _subtasks_html(limit=None):
     if not SUBTASKS:
-        return ui.div(cls="empty")[
+        empty = ui.div(cls="empty")[
             ui.raw("还没有子任务。<br>给蚁后下达任务后，拆分结果会出现在这里。")
         ].render()
+        return empty
+    shown = SUBTASKS if limit is None else SUBTASKS[:limit]
+    total = len(SUBTASKS)
     out = []
-    for i, s in enumerate(SUBTASKS, 1):
+    for i, s in enumerate(shown, 1):
         status = s.get("status", "run")
         pill = ui.span(cls=f"pill {status}")[_STATUS_TEXT.get(status, status)]
         out.append(
             ui.div(cls="subtask")[
                 ui.div(cls="idx")[str(i)],
                 ui.div(cls="body")[
-                    ui.div(cls="top")[ui.div(cls="title")[s.get("title", "")], pill],
-                    ui.div(cls="worker")[f"负责：{s.get('worker', '')}"],
-                    ui.div(cls="muted")[f"↳ {s.get('msg', '')}"],
+                    ui.div(cls="top")[ui.div(cls="title")[_clip(s.get("title", ""), 60)], pill],
+                    ui.div(cls="worker")[f"负责：{_clip(s.get('worker', ''), 40)}"],
+                    ui.div(cls="muted")[f"↳ {_clip(s.get('msg', ''), 100)}"],
                 ],
             ].render()
         )
+    if limit is not None and total > len(shown):
+        out.append(ui.div(cls="more-hint")[
+            f"… 还有 {total - len(shown)} 个子任务，点「展开」查看全部"
+        ].render())
     return "".join(out)
 
 
-def _workers_html():
+def _workers_html(limit=None):
     if not WORKERS:
-        return ui.div(cls="empty")[
+        empty = ui.div(cls="empty")[
             ui.raw("蚁巢空置中。<br>蚁后派发 spawn_clone 时，工蚁会在这里出现。")
         ].render()
+        return empty
+    shown = WORKERS if limit is None else WORKERS[:limit]
+    total = len(WORKERS)
     out = []
-    for w in WORKERS:
+    for w in shown:
         status = w.get("status", "run")
         pill = ui.span(cls=f"pill {status}")[_STATUS_TEXT.get(status, status)]
         art = w.get("artifacts") or []
         art_html = ""
         if art:
             items = "".join(
-                f'<span class="art-item" title="{_esc(a)}">{_esc(a.split("/")[-1])}</span>'
-                for a in art
+                f'<span class="art-item" title="{_esc(a)}">{_esc(a.split("/")[-1][:30])}</span>'
+                for a in art[:12]
             )
             art_html = f'<div class="art-list">📦 {items}</div>'
         out.append(
             ui.div(cls="worker-card")[
-                ui.div(cls="top")[ui.div(cls="name")[w.get("name", "")], pill],
-                ui.div(cls="meta")[f"当前：{w.get('task', '')}"],
-                ui.div(cls="meta")[f"↳ {w.get('note', '')}"],
+                ui.div(cls="top")[ui.div(cls="name")[_clip(w.get("name", ""), 50)], pill],
+                ui.div(cls="meta")[f"当前：{_clip(w.get('task', ''), 80)}"],
+                ui.div(cls="meta")[f"↳ {_clip(w.get('note', ''), 100)}"],
                 ui.raw(art_html),
             ].render()
         )
+    if limit is not None and total > len(shown):
+        out.append(ui.div(cls="more-hint")[
+            f"… 还有 {total - len(shown)} 只工蚁，点「展开」查看全部"
+        ].render())
     return "".join(out)
 
 
@@ -865,10 +1004,9 @@ def _settings_section(title, *children):
 
 
 _THEME_OPTS = [
-    ("dark", "暗黑", "linear-gradient(135deg,#0a1120,#4CC9F0)"),
-    ("light", "明亮", "linear-gradient(135deg,#eef2f7,#1a73e8)"),
-    ("midnight", "午夜", "linear-gradient(135deg,#050505,#7dd3fc)"),
-    ("teal", "青绿", "linear-gradient(135deg,#04181a,#2dd4bf)"),
+    ("dark", "黑色", "linear-gradient(135deg,#0a1120,#4CC9F0)"),
+    ("light", "白色", "linear-gradient(135deg,#eef2f7,#1a73e8)"),
+    ("custom", "自定义", "conic-gradient(from 180deg,#4CC9F0,#ffffff,#4CC9F0)"),
 ]
 
 
@@ -893,17 +1031,22 @@ def _skill_options():
 
 def _skills_modal():
     return ui.div(
-        cls="modal skills-modal",
+        cls="modal settings-modal skills-drawer",
         id="skills-modal",
         onclick="if(event.target===this) closeSkillsModal()",
     )[
-        ui.raw('<button type="button" class="modal-close global" onclick="closeSkillsModal()" title="关闭">×</button>'),
-        ui.div(cls="modal-card", onclick="event.stopPropagation()")[
-            ui.h2()["已安装的 Skills"],
-            ui.div(id="skills-list")[ui.raw(_skills_list_html())],
-            ui.div(cls="modal-actions")[
-                ui.raw('<button class="btn ghost" onclick="refreshSkills()">刷新</button>'),
-                ui.raw('<button class="btn" onclick="closeSkillsModal()">关闭</button>'),
+        ui.div(cls="modal-card settings-card", onclick="event.stopPropagation()")[
+            ui.div(cls="settings-header")[
+                ui.div()[
+                    ui.h2()["已安装的 Skills"],
+                    ui.raw('<p class="settings-sub">选中 Skill 注入上下文，让蚁后获得专项能力</p>'),
+                ],
+                ui.raw('<button type="button" class="modal-close" onclick="closeSkillsModal()" title="关闭">×</button>'),
+            ],
+            ui.div(cls="settings-body skills-list")[ui.raw(_skills_list_html())],
+            ui.div(cls="settings-footer")[
+                ui.raw('<button type="button" class="btn ghost" onclick="refreshSkills()">刷新</button>'),
+                ui.raw('<button type="button" class="btn" onclick="closeSkillsModal()">完成</button>'),
             ],
         ],
     ]
@@ -922,8 +1065,9 @@ def _models_list_html(models=None):
         vision = m.get("vision") if isinstance(m, dict) else False
         rec = m.get("rec") if isinstance(m, dict) else {}
         tag = '<span class="skill-tag">vision</span>' if vision else ""
-        if isinstance(rec, dict) and rec.get("thinking_mode"):
-            tag += f'<span class="skill-tag">{_h.escape(rec["thinking_mode"])}</span>'
+        if (isinstance(rec, dict) and rec.get("thinking_mode")
+                and str(rec["thinking_mode"]).lower() not in ("auto", "", "none")):
+            tag += f'<span class="skill-tag">thinking:{_h.escape(str(rec["thinking_mode"]))}</span>'
         active = " active" if mid == current else ""
         parts.append(
             f'<button type="button" class="model-item{active}" onclick="pickModel({json.dumps(mid)})">'
@@ -1029,20 +1173,27 @@ def _settings_modal():
         ui.div(cls="field full")[
             ui.raw('<div class="field-label">主题</div><div class="field-hint">点击即时预览</div>'),
             _theme_buttons(),
+        ui.raw(
+            '<div class="field full" id="custom-color-row" style="display:none">'
+            '<div class="field-label">自定义主题色</div>'
+            '<input type="color" id="set-custom-color" value="#4CC9F0"'
+            ' style="width:100%;height:36px;border-radius:var(--radius-sm);border:1px solid var(--card-border);background:var(--surface);"'
+            ' oninput="applyCustomColor(this.value)">'            '</div>'
+        ),
         ],
         _field("bg_image", "背景图片", APPEARANCE["bg_image"], full=True, code=True,
                hint="URL 或本地路径，留空使用主题渐变"),
     ]
     custom = _field_area(
-        "custom_agent", "自定义 Agent 指令", APPEARANCE["custom_agent"], code=True,
-        hint="追加到 system prompt 尾部，优先级最高",
+        "custom_agent", "自定义 Agent 行为偏好", APPEARANCE["custom_agent"], code=True,
+        hint="可描述表达风格、主动程度和验证习惯；只影响行为偏好，不改变工具权限或安全确认。",
     )
     return ui.div(cls="modal settings-modal", id="settings-modal", onclick="if(event.target===this) closeSettings()")[
         ui.div(cls="modal-card settings-card", onclick="event.stopPropagation()")[
             ui.div(cls="settings-header")[
                 ui.div()[
                     ui.h2()["设置"],
-                    ui.raw('<p class="settings-sub">配置模型连接、蚁巢参数、集成与外观</p>'),
+                    ui.raw('<p class="settings-sub">配置模型连接、蚁巢参数、集成、外观与 Agent 行为偏好</p>'),
                 ],
                 ui.raw('<button type="button" class="modal-close" onclick="closeSettings()" title="关闭">×</button>'),
             ],
@@ -1192,17 +1343,24 @@ def on_reset(data):
     _flush()
 
 
+def _session_paths():
+    """会话目录解析：不依赖核心懒加载，直接按环境/默认推导。
+    返回 (project_dir, session_dir)，供列表/查看/删除会话使用。"""
+    m = core.mod
+    if m:
+        return m.PROJECT_DIR, m.SESSION_DIR
+    home = os.environ.get("ANT_HOME") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".antnest")
+    return os.getcwd(), os.path.join(home, "sessions")
+
+
 @app.route("sessions_list")
 def on_sessions_list(data):
-    """对话记录：列出当前项目的所有历史会话。"""
-    m = core.mod
-    if not m:
-        bridge.trace("UI", "warn", "sessions_list 被调用但 core.mod 为空（核心未加载）")
-        app.run_js("setSessionsHint('核心尚未加载，请先发送一条消息激活蚁后。');")
-        app.run_js("renderSessions([]);")
-        return
+    """对话记录：列出当前项目的所有历史会话（不依赖核心是否已加载）。"""
+    import antnest_session as _sm
     try:
-        lst = m.list_project_sessions()
+        proj, sdir = _session_paths()
+        lst = _sm.list_project_sessions(proj, sdir)
         bridge.trace("UI", "info", f"sessions_list 返回 {len(lst)} 个会话")
         app.run_js(f"renderSessions({json.dumps(lst)});")
     except Exception as e:
@@ -1218,7 +1376,8 @@ def _chats_from_messages(msgs):
             continue
         chats.append({
             "role": "user" if msg["role"] == "user" else "queen",
-            "text": msg.get("content") or "",
+            "text": (("⏹ 已保存的中断摘要\n" + (msg.get("content") or ""))
+                     if msg.get("stop_snapshot") else (msg.get("content") or "")),
             "reasoning": msg.get("reasoning_content") or "",
         })
     return chats
@@ -1269,14 +1428,41 @@ def on_session_load(data):
 
 @app.route("session_delete")
 def on_session_delete(data):
-    """删除指定会话。"""
+    """删除指定会话（不依赖核心是否已加载——修复之前核心未启动时删除无效）。"""
     sid = (data or {}).get("id", "")
     if not sid:
         return
-    m = core.mod
-    if m:
-        m.delete_session(m.PROJECT_DIR, m.SESSION_DIR, sid)
+    import antnest_session as _sm
+    try:
+        proj, sdir = _session_paths()
+        ok = _sm.delete_session(proj, sdir, sid)
+        bridge.trace("UI", "info", f"删除会话 {sid}: {'成功' if ok else '失败/不存在'}")
+        if not ok:
+            app.run_js("setSessionsHint('删除失败或会话不存在');")
+    except Exception as e:
+        bridge.trace("UI", "warn", f"删除会话失败：{e}")
+        app.run_js("setSessionsHint('删除失败：" + str(e) + "');")
     app.run_js("refreshSessions();")
+
+
+@app.route("session_view")
+def on_session_view(data):
+    """只读查看会话内容（不替换当前上下文）——对话记录的默认动作是查看。"""
+    sid = (data or {}).get("id", "")
+    if not sid:
+        return
+    import antnest_session as _sm
+    msgs = []
+    try:
+        proj, sdir = _session_paths()
+        sf = _sm.get_session_file(proj, sdir, sid)
+        if os.path.exists(sf):
+            with open(sf, encoding="utf-8") as f:
+                raw = json.load(f)
+            msgs = _chats_from_messages(raw) if isinstance(raw, list) else []
+    except Exception as e:
+        bridge.trace("UI", "warn", f"读取会话内容失败：{e}")
+    app.run_js(f"renderSessionView({json.dumps(msgs)}); openSessionViewModal();")
 
 
 @app.route("session_new")
@@ -1294,7 +1480,8 @@ def on_session_new(data):
         m.messages = [{
             "role": "system",
             "content": m.SYSTEM_PROMPT.format(
-                nest_md=nest or "无", hints=hints or "无", env_info=m.ENV_INFO
+                nest_md=nest or "无", hints=hints or "无", env_info=m.ENV_INFO,
+                model_capability=m.model_capability_summary(),
             ),
         }]
     except Exception as e:
@@ -1520,8 +1707,37 @@ def on_save_settings(data):
 _init_theme = APPEARANCE["theme"]
 _init_bg = APPEARANCE["bg_image"]
 app.body(
+    # 全局：蚁后立绘（透明底，固定左侧，不参与交互；所有页面可见）
     # 全局：背景图应用函数 + 启动时套用已存主题/背景 + 设置面板本地显隐
     ui.raw("<script>" + load_js() + "</script>"),
+    # 启动立绘：应用打开时出现一次（splash），随后自动淡出
+    ui.raw(
+        '<div id="app-splash" class="app-splash" aria-hidden="false">'
+        '<div class="splash-inner">'
+        f'<img class="splash-portrait" src="{_QUEEN_PORTRAIT_SRC}" alt=""/>'
+        '<div class="splash-glow"></div>'
+        '<div class="splash-title">AntNest</div>'
+        '<div class="splash-sub">蚁后待命 · 正在加载工作区</div>'
+        '</div></div>'
+    ),
+    ui.raw(
+        '<script>'
+        '(function(){'
+        '  function hide(){'
+        '    var s=document.getElementById("app-splash"); if(!s) return;'
+        '    s.classList.add("hide");'
+        '    setTimeout(function(){ if(s.parentNode) s.parentNode.removeChild(s); }, 800);'
+        '  }'
+        '  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches){ setTimeout(hide, 600); }'
+        '  else { setTimeout(hide, 2200); }'
+        '  document.addEventListener("pointerdown", function once(){ hide(); document.removeEventListener("pointerdown", once); });'
+        '})();'
+        '</script>'
+    ),
+
+    ui.raw(
+        f'<script>window.QUEEN_PORTRAIT={json.dumps(_QUEEN_PORTRAIT_SRC)};</script>'
+    ),
     ui.raw(
         f'<script>var VISION_INITIAL={json.dumps(_vision_enabled())};'
         f'var VISION_REASON={json.dumps(_vision_reason())};'
@@ -1530,24 +1746,23 @@ app.body(
         f'if(window.updateImageBtn) updateImageBtn(VISION_INITIAL, VISION_REASON);</script>'
     ),
 
-    # 更新提示条（默认隐藏，发现新版本时由 check_update 后台弹出）
+    # 更新弹窗（居中卡片，默认隐藏；发现新版本时由 check_update 后台弹出）
     ui.raw(
         '<div id="update-banner" class="update-banner">'
-        '<span class="ub-text"><span class="ub-dot"></span>'
-        '<span id="update-text"></span></span>'
+        '<div class="ub-backdrop" onclick="hideUpdateBanner()"></div>'
+        '<div class="ub-card">'
+        '<div class="ub-title">发现新版本</div>'
+        '<div class="ub-text"><span class="ub-dot"></span>'
+        '<span id="update-text"></span></div>'
+        '<div class="ub-actions">'
+        '<button class="ub-close" onclick="hideUpdateBanner()">稍后再说</button>'
         '<button onclick="openRelease()">查看更新</button>'
-        '<button class="ub-close" onclick="hideUpdateBanner()">忽略</button>'
-        '</div>'
+        '</div></div></div>'
     ),
 
     ui.div(cls="topbar")[
         ui.div(cls="brand")[
-            ui.raw('<svg class="brand-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
-                   '<circle cx="12" cy="5.5" r="2.6"/>'
-                   '<circle cx="12" cy="11" r="2"/>'
-                   '<ellipse cx="12" cy="18" rx="3.6" ry="4.4"/>'
-                   '<path d="M7.2 9.2l3.2 1.6M16.8 9.2l-3.2 1.6M7 14.5l3.2-1M17 14.5l-3.2-1M7.8 19.5l3-1M16.2 19.5l-3-1" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
-                   '</svg>'),
+            ui.raw(f'<img class="brand-logo" src="{_APP_ICON_SRC}" alt="AntNest"/>'),
             "AntNest",
         ],
         ui.span(cls="tag")["在暗面构建"],
@@ -1611,20 +1826,29 @@ app.body(
             ui.div(cls="monitor-panels")[
                 ui.div(cls="card panel")[
                     ui.h2()["子任务"],
+                    ui.raw('<button class="btn ghost btn-expand" onclick="openSubtasksModal()" title="展开查看全部子任务">展开</button>'),
                     _subtasks(),
                 ],
                 ui.div(cls="card panel")[
                     ui.h2()["工蚁"],
+                    ui.raw('<button class="btn ghost btn-expand" onclick="openWorkersModal()" title="展开查看全部工蚁状态">展开</button>'),
                     _workers(),
                 ],
             ],
-            ui.div(cls="card log-card")[
-                ui.h2()["运行日志"],
+            ui.div(cls="card log-card status-card")[
+                ui.h2()["任务状态"],
+                ui.div(cls="status-summary")[
+                    ui.raw('<div class="status-row"><span class="status-label">当前任务</span><span class="status-value" id="st-task">—</span></div>'),
+                    ui.raw('<div class="status-row"><span class="status-label">开始时间</span><span class="status-value" id="st-start">—</span></div>'),
+                    ui.raw('<div class="status-row"><span class="status-label">状态</span><span class="status-value" id="st-state">待命</span></div>'),
+                ],
+                ui.div(cls="status-workers", id="st-workers")[
+                    ui.raw('<div class="muted" style="font-size:12px">暂无工蚁</div>'),
+                ],
                 ui.div(cls="toolbar")[
                     ui.raw('<button class="btn ghost" onclick="phwCall(\'dispatch\')">↻ 重连核心</button>'),
                     ui.raw('<button class="btn ghost" onclick="phwCall(\'reset\')">■ 休眠</button>'),
                 ],
-                ui.div(cls="log", id="log")[ui.raw(render_log())],
             ],
         ],
     ],
@@ -1649,13 +1873,50 @@ app.body(
         '<div id="sessions-modal" class="sponsor-modal" onclick="if(event.target===this) closeSessionsModal()">'
         '<button type="button" class="modal-close global" onclick="closeSessionsModal()" title="关闭">×</button>'
         '<div class="modal-card sessions-card">'
+        '<div class="sessions-head">'
         '<h2>🕘 对话记录</h2>'
-        '<div class="sessions-toolbar">'
         '<button class="btn" onclick="newSession()">＋ 新建会话</button>'
-        '<span class="muted" id="sessions-hint" style="font-size:12px"></span>'
         '</div>'
-        '<div id="sessions-list" class="sessions-list"><div class="muted">加载中…</div></div>'
+        '<p class="muted" id="sessions-hint" style="font-size:12px;margin:0 0 12px"></p>'
+        '<div id="sessions-list" class="sessions-grid"><div class="muted">加载中…</div></div>'
         '</div></div>'
+    ),
+    # 右下角版本徽标
+    # ---- 子任务 / 工蚁 展开模态（独立卡片弹窗） ----
+    # 子任务展开模态
+    ui.raw(
+        '<div id="subtasks-modal" class="modal ops-modal" onclick="if(event.target===this) closeSubtasksModal()">'
+        '<button type="button" class="modal-close global" onclick="closeSubtasksModal()" title="关闭">x</button>'
+        '<div class="modal-card" onclick="event.stopPropagation()">'
+        '<h2>子任务总览</h2>'
+        '<p class="muted" style="font-size:13px;margin:-8px 0 12px">全部子任务执行状态</p>'
+        '<div id="subtasks-modal-list" class="ops-grid"><div class="muted">加载中</div></div>'
+        '</div></div>'
+    ),
+    # 工蚁展开模态
+    ui.raw(
+        '<div id="workers-modal" class="modal ops-modal" onclick="if(event.target===this) closeWorkersModal()">'
+        '<button type="button" class="modal-close global" onclick="closeWorkersModal()" title="关闭">x</button>'
+        '<div class="modal-card" onclick="event.stopPropagation()">'
+        '<h2>工蚁总览</h2>'
+        '<p class="muted" style="font-size:13px;margin:-8px 0 12px">工蚁创建时间与存活状态</p>'
+        '<div id="workers-modal-list" class="ops-grid"><div class="muted">加载中</div></div>'
+        '</div></div>'
+    ),
+    # 会话内容只读查看弹窗（对话记录默认动作=查看，不改当前上下文）
+    ui.raw(
+        '<div id="session-view-modal" class="modal" onclick="if(event.target===this) closeSessionViewModal()">'
+        '<button type="button" class="modal-close global" onclick="closeSessionViewModal()" title="关闭">x</button>'
+        '<div class="modal-card session-view-card" onclick="event.stopPropagation()">'
+        '<h2>会话内容（只读）</h2>'
+        '<p class="muted" style="font-size:13px;margin:-8px 0 12px">仅查看，不替换当前对话上下文</p>'
+        '<div id="session-view-body" class="session-view-body"><div class="muted">加载中</div></div>'
+        '</div></div>'
+    ),
+    ui.raw(
+        '<div class="version-badge" id="app-version" '
+        'title="当前版本 v' + APP_VERSION + '，点击检查更新" '
+        'onclick="checkForUpdate()">v' + APP_VERSION + '</div>'
     ),
 )
 

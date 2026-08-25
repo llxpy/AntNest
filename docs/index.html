@@ -48,7 +48,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 @media(max-width:700px){.nav-links{display:none}}
 
 /* ---- Hero ---- */
-.hero{padding:80px 0 60px;text-align:center}
+.hero{padding:80px 0 96px;text-align:center}
 .hero-tag{display:inline-block;font-size:12px;color:var(--accent);border:1px solid rgba(76,201,240,0.30);border-radius:999px;padding:4px 14px;margin-bottom:20px;background:rgba(76,201,240,0.06)}
 .hero h1{font-size:clamp(32px,5vw,52px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:16px}
 .hero h1 .ant{display:inline-block;animation:breathe 3s ease-in-out infinite}
@@ -61,9 +61,9 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .btn-outline:hover{border-color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);text-decoration:none}
 
 /* ---- Architecture SVG ---- */
-.arch{margin:60px auto 0;max-width:720px}
+.arch{margin:60px auto 0;max-width:720px;padding-bottom:8px}
 .arch-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:20px;text-align:center}
-.arch svg{width:100%;height:auto}
+.arch svg{display:block;width:100%;height:auto;overflow:visible}
 
 /* ---- Features ---- */
 .features{padding:80px 0}
@@ -202,7 +202,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
     <!-- Architecture diagram -->
     <div class="arch">
       <div class="arch-title">工作原理</div>
-      <svg viewBox="0 0 720 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 720 220" fill="none" xmlns="http://www.w3.org/2000/svg">
         <!-- User -->
         <rect x="0" y="60" width="120" height="80" rx="12" fill="rgba(14,22,40,0.80)" stroke="rgba(255,255,255,0.08)"/>
         <text x="60" y="92" text-anchor="middle" fill="#6e7f96" font-size="11" font-family="sans-serif">用户输入</text>
@@ -243,8 +243,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
         <text x="660" y="116" text-anchor="middle" fill="#e4ecff" font-size="10" font-family="sans-serif">2. Desktop 12GB</text>
         <text x="660" y="132" text-anchor="middle" fill="#e4ecff" font-size="10" font-family="sans-serif">3. WinSxS 6.8GB</text>
         <!-- Isolation badge -->
-        <rect x="420" y="192" width="88" height="20" rx="10" fill="rgba(255,107,107,0.10)" stroke="rgba(255,107,107,0.30)"/>
-        <text x="464" y="206" text-anchor="middle" fill="#ff6b6b" font-size="9" font-weight="600" font-family="sans-serif">🔒 进程隔离</text>
+        <rect x="420" y="190" width="88" height="22" rx="11" fill="rgba(255,107,107,0.10)" stroke="rgba(255,107,107,0.30)"/>
+        <text x="464" y="205" text-anchor="middle" fill="#ff6b6b" font-size="9" font-weight="600" font-family="sans-serif">🔒 进程隔离</text>
       </svg>
     </div>
   </div>

@@ -196,6 +196,7 @@ _PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title}</title>
+{favicon}
 <style>
 {css}
 /* 管理员模式 IME 修复：确保输入法候选框能正常显示 */
@@ -225,17 +226,85 @@ input:focus, textarea:focus {
 </html>"""
 
 
+def _apply_window_icon(title, icon_path):
+    """窗口显示后把标题栏小图标 + 任务栏大图标设为应用图标。
+    
+    不依赖 pywebview 版本：旧版 create_window 不支持 icon 参数，
+    窗口创建后通过 Windows API 直接设置（WM_SETICON）。
+    先按标题找窗口，失败则按当前进程找第一个顶层窗口。
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        import time as _t
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.FindWindowW.restype = wt.HWND
+        user32.FindWindowW.argtypes = [wt.LPCWSTR, wt.LPCWSTR]
+        user32.EnumWindows.restype = wt.BOOL
+        _CBTYPE = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+        user32.EnumWindows.argtypes = [_CBTYPE, wt.LPARAM]
+        user32.GetWindowThreadProcessId.restype = wt.DWORD
+        user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
+        user32.LoadImageW.restype = wt.HANDLE
+        user32.LoadImageW.argtypes = [wt.HINSTANCE, wt.LPCWSTR, wt.UINT,
+                                      ctypes.c_int, ctypes.c_int, wt.UINT]
+        user32.SendMessageW.restype = wt.LPARAM
+        user32.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+
+        pid = ctypes.windll.kernel32.GetCurrentProcessId()
+
+        def _find():
+            h = user32.FindWindowW(None, title)
+            if h:
+                return h
+            found = []
+
+            def _cb(hwnd, lparam):
+                wpid = wt.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+                if wpid.value == pid:
+                    found.append(hwnd)
+                    return False  # 停止枚举
+                return True
+
+            user32.EnumWindows(_CBTYPE(_cb), 0)
+            return found[0] if found else None
+
+        hwnd = None
+        for _ in range(100):  # 最多等 10s，窗口出现即设
+            hwnd = _find()
+            if hwnd:
+                break
+            _t.sleep(0.1)
+        if not hwnd:
+            return
+
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
+        WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
+        big = user32.LoadImageW(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+    except Exception:
+        pass
+
+
 # --------------------------------------------------------------------------
 # Win —— 一个桌面窗口应用
 # --------------------------------------------------------------------------
 class Win:
     def __init__(self, title: str = "PHtmlWin", width: int = 1000,
                  height: int = 700, backend: str = None,
-                 icon: str = None, gui: str = None) -> None:
+                 icon: str = None, gui: str = None,
+                 favicon: str = None) -> None:
         self.title = title
         self.width = width
         self.height = height
         self.icon = icon              # webview 窗口图标路径（.ico）
+        self.favicon = favicon       # 页面 favicon（data:URI 或地址），空则不输出
         self._css = ""
         self._body_children: list = []
         self._routes: dict = {}
@@ -289,7 +358,12 @@ class Win:
             self._backend = self._detect_backend()
         body = "".join(self._render_node(n) for n in self._body_children)
         page = _PAGE
+        favicon_html = (
+            f'<link rel="icon" href="{self.favicon}">'
+            if self.favicon else ""
+        )
         page = (page.replace("{title}", self.title)
+                    .replace("{favicon}", favicon_html)
                     .replace("{css}", self._css)
                     .replace("{body}", body)
                     .replace("{bridge}", self._bridge_js()))
@@ -355,14 +429,33 @@ class Win:
         kwargs = {"title": self.title, "html": page,
                   "width": self.width, "height": self.height,
                   "js_api": Bridge(self)}
-        if self._gui:
+        # 兼容新旧版 pywebview：icon/gui 等可选参数以运行时的 create_window
+        # 签名为准，支持才传。旧版（如安装版环境的 pywebview）不支持 icon，
+        # 直接传会 TypeError，这里探测后跳过，任务栏图标退回系统默认。
+        try:
+            import inspect as _insp
+            _sig = _insp.signature(webview.create_window)
+            _accepts = set(_sig.parameters)
+        except Exception:
+            _accepts = set()
+        if self.icon and "icon" in _accepts:
+            kwargs["icon"] = self.icon
+        if self._gui and "gui" in _accepts:
             kwargs["gui"] = self._gui
         self._window = webview.create_window(**kwargs)
         start_kwargs = {}
-        if self.icon:
-            start_kwargs["icon"] = self.icon
         if self._gui:
             start_kwargs["gui"] = self._gui
+
+        # 窗口图标双保险：create_window 支持 icon 时上面已传；
+        # 无论版本，窗口显示后都把标题栏/任务栏图标设为应用图标，
+        # 保证与桌面快捷方式图标一致（旧版 pywebview 也能生效）。
+        if self.icon and os.name == "nt":
+            threading.Thread(
+                target=_apply_window_icon,
+                args=(self.title, self.icon),
+                daemon=True,
+            ).start()
 
         # 管理员模式 IME 修复：设置用户数据目录和 WebView2 参数
         # Windows UAC 提升后 WebView2 的 IME 候选窗无法正常显示

@@ -37,3 +37,7 @@ android/gradle/wrapper/gradle-wrapper.jar
 AntNest_v*.exe
 
 # Compiled launcher（有意入库的：AntNest.exe）
+
+# Kun 工作区产物（画布/设计中间文件，非项目源码）
+.kun-canvas/
+.kun-design/

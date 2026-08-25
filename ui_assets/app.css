@@ -99,15 +99,20 @@ body{
 }
 .brand{
   display:flex; align-items:center; font-size:18px; font-weight:700;
-  letter-spacing:0.4px; color:var(--text);
+  letter-spacing:0.5px; color:var(--text);
 }
 .brand-logo{
-  width:20px; height:20px; margin-right:8px; fill:var(--accent);
-  filter:drop-shadow(0 0 6px var(--accent-glow));
-  animation:breathe 3s ease-in-out infinite;
+  width:22px; height:22px; margin-right:9px; fill:var(--accent);
+  filter:drop-shadow(0 0 7px var(--accent-glow));
+  animation:brandPulse 3.2s ease-in-out infinite;
 }
-@keyframes breathe{0%,100%{opacity:0.40}50%{opacity:1}}
-@media (prefers-reduced-motion: reduce){.brand-logo{animation:none; opacity:.85}}
+@keyframes brandPulse{0%,100%{filter:drop-shadow(0 0 4px var(--accent-glow))}50%{filter:drop-shadow(0 0 11px var(--accent-glow))}}
+.brand:hover .brand-logo{filter:drop-shadow(0 0 10px var(--accent-glow)) brightness(1.12)}
+.brand img.brand-logo{
+  width:22px; height:22px; border-radius:50%; object-fit:cover; display:block;
+  border:1px solid rgba(76,201,240,0.35); box-shadow:0 0 8px var(--accent-glow);
+}
+@media (prefers-reduced-motion: reduce){.brand-logo{animation:none}}
 
 .tag{
   font-size:11px; color:var(--muted); border:1px solid var(--card-border);
@@ -177,8 +182,8 @@ body{
 
 /* ── Chat bubbles ── */
 .bubble{
-  max-width:88%; padding:12px 16px; border-radius:var(--radius-md);
-  margin-bottom:2px; line-height:1.65; font-size:14px; word-break:break-word;
+  max-width:86%; padding:12px 16px; border-radius:var(--radius-md);
+  margin-bottom:4px; line-height:1.7; font-size:14px; word-break:break-word;
   user-select:text; -webkit-user-select:text;
   display:flex; gap:10px; align-items:flex-start;
   animation:bubbleIn 0.2s ease-out;
@@ -188,36 +193,57 @@ body{
 
 .bubble.user{
   align-self:flex-end; background:var(--bubble-user);
-  border:1px solid rgba(76,201,240,0.25);
-  white-space:pre-wrap; flex-direction:row-reverse;
+  border:1px solid rgba(76,201,240,0.22);
+  border-radius:16px 16px 6px 16px;
+  white-space:pre-wrap; flex-direction:row-reverse; color:var(--text);
 }
 .bubble.queen{
-  align-self:flex-start; background:var(--bubble-queen);
-  border:1px solid var(--card-border); position:relative; padding-left:16px;
+  align-self:flex-start;
+  background:
+    linear-gradient(155deg, var(--accent-dim), rgba(255,255,255,0.02) 38%, rgba(255,255,255,0.03));
+  border:1px solid rgba(76,201,240,0.16);
+  border-radius:6px 14px 14px 14px;
+  position:relative; padding-left:18px; overflow:hidden;
+  box-shadow:0 6px 18px -10px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .bubble.queen::before{
-  content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
-  border-radius:0 2px 2px 0; background:var(--accent); opacity:0.45;
+  content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px;
+  border-radius:3px; background:linear-gradient(180deg, var(--accent), var(--accent-dim));
+  box-shadow:0 0 8px var(--accent-glow);
 }
 .bubble.queen.streaming{
-  border-color:rgba(76,201,240,0.18);
-  box-shadow:0 0 24px var(--agent-glow), inset 0 0 20px rgba(76,201,240,0.03);
+  border-color:rgba(76,201,240,0.28);
+  box-shadow:0 0 26px var(--agent-glow), inset 0 0 22px rgba(76,201,240,0.04);
 }
 .bubble-main{flex:1; min-width:0}
-.bubble-text{white-space:pre-wrap}
+.bubble-text{white-space:pre-wrap; color:var(--text)}
+.bubble-meta{
+  display:flex; align-items:center; gap:7px; margin-bottom:6px;
+  font-size:10px; font-weight:700; letter-spacing:0.7px; text-transform:uppercase;
+  color:var(--accent); opacity:0.85;
+}
+.bubble-meta .bm-dot{
+  width:6px; height:6px; border-radius:50%; background:var(--accent);
+  box-shadow:0 0 7px var(--accent); animation:bmPulse 2.6s ease-in-out infinite;
+}
+.bubble.user .bubble-meta{display:none}
+@keyframes bmPulse{0%,100%{opacity:.6}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.bubble-meta .bm-dot{animation:none}}
 
 /* ── Avatars ── */
 .avatar{
-  width:30px; height:30px; border-radius:50%; flex-shrink:0;
+  width:32px; height:32px; border-radius:50%; flex-shrink:0;
   display:flex; align-items:center; justify-content:center;
-  margin-top:2px; user-select:none;
+  margin-top:5px; user-select:none;
 }
 .queen-avatar{
-  background:var(--accent-dim); color:var(--accent);
-  border:1px solid rgba(76,201,240,0.30);
-  box-shadow:0 0 12px var(--agent-glow);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(125,227,255,0.40), var(--accent-dim) 55%, var(--accent-dim));
+  color:var(--accent);
+  border:1px solid rgba(76,201,240,0.40);
+  box-shadow:0 0 0 3px rgba(76,201,240,0.06), 0 0 14px var(--agent-glow);
 }
-.queen-avatar svg{width:16px; height:16px}
+.queen-avatar svg{width:18px; height:18px}
 .user-avatar{
   background:var(--surface); color:var(--muted);
   border:1px solid var(--card-border); font-size:11px; font-weight:700;
@@ -225,26 +251,27 @@ body{
 
 /* ── Think block ── */
 .think-block{
-  margin:0 0 8px; border-radius:var(--radius-sm);
-  border:1px solid rgba(76,201,240,0.10);
-  background:rgba(76,201,240,0.03);
-  padding:8px 12px; font-size:12px; line-height:1.55;
-  color:var(--muted); opacity:0.85;
+  margin:0 0 10px; border-radius:10px;
+  border:1px solid rgba(76,201,240,0.14);
+  border-left:2px solid rgba(76,201,240,0.5);
+  background:linear-gradient(180deg, rgba(76,201,240,0.05), rgba(76,201,240,0.015));
+  padding:10px 12px; font-size:12px; line-height:1.65;
+  color:var(--muted);
 }
 .think-title{
-  font-size:11px; color:var(--accent); padding:0; margin-bottom:4px;
+  font-size:10px; color:var(--accent); padding:0; margin-bottom:5px;
   user-select:none; display:flex; align-items:center; gap:6px;
-  font-weight:600; letter-spacing:0.5px; text-transform:uppercase;
+  font-weight:700; letter-spacing:0.9px; text-transform:uppercase;
 }
 .think-title::before{
-  content:""; width:7px; height:7px; border-radius:50%;
-  background:var(--accent); opacity:0.50;
+  content:""; width:6px; height:6px; border-radius:50%;
+  background:var(--accent); opacity:0.6;
   animation:thinkdot 1.6s ease-in-out infinite;
 }
 @keyframes thinkdot{0%,100%{opacity:0.30; transform:scale(0.85)}50%{opacity:1; transform:scale(1.1)}}
 .think-body{
-  padding:0; white-space:pre-wrap; max-height:200px; overflow:auto;
-  user-select:text; -webkit-user-select:text;
+  padding:0; white-space:pre-wrap; max-height:220px; overflow:auto;
+  user-select:text; -webkit-user-select:text; color:var(--muted);
 }
 @media (prefers-reduced-motion: reduce){.think-title::before{animation:none; opacity:.7}}
 
@@ -708,25 +735,73 @@ body{
 .thinking-hint{display:none !important}
 
 /* ================================================================
-   Update banner
+   Update banner（居中弹窗：与主题一致，字体清晰）
    ================================================================ */
 .update-banner{
-  position:fixed; top:14px; left:50%; transform:translateX(-50%);
-  z-index:50; display:none; align-items:center; gap:12px; max-width:90vw;
-  padding:10px 16px; border-radius:var(--radius-md);
-  background:rgba(8,13,24,0.90); backdrop-filter:blur(12px);
-  border:1px solid var(--accent); color:var(--text); font-size:13px;
-  box-shadow:0 8px 32px rgba(0,0,0,0.35);
+  position:fixed; inset:0; z-index:120; display:none;
+  align-items:center; justify-content:center; padding:24px;
 }
-.update-banner .ub-text{display:flex; align-items:center; gap:8px}
-.update-banner .ub-dot{width:7px; height:7px; border-radius:50%; background:var(--accent)}
+.update-banner .ub-backdrop{
+  position:absolute; inset:0; background:rgba(0,0,0,0.55);
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+}
+.update-banner .ub-card{
+  position:relative; width:420px; max-width:92vw;
+  background:var(--card); border:1px solid var(--card-border);
+  border-radius:var(--radius-lg); padding:24px 26px;
+  box-shadow:var(--shadow-lg); color:var(--text);
+  animation:modalIn 0.2s ease-out;
+}
+.update-banner .ub-title{
+  font-size:17px; font-weight:700; margin-bottom:8px;
+  color:var(--accent); letter-spacing:0.2px;
+}
+.update-banner .ub-text{
+  display:flex; align-items:center; gap:8px;
+  font-size:14px; line-height:1.7; color:var(--text);
+}
+.update-banner .ub-dot{
+  width:8px; height:8px; border-radius:50%; background:var(--accent);
+  box-shadow:0 0 8px var(--accent-glow); flex-shrink:0;
+}
+.update-banner .ub-actions{
+  display:flex; justify-content:flex-end; gap:10px; margin-top:20px;
+  padding-top:16px; border-top:1px solid var(--card-border);
+}
 .update-banner button{
-  background:transparent; border:1px solid var(--card-border);
-  color:var(--text); border-radius:var(--radius-sm); padding:5px 10px;
-  font-size:12px; cursor:pointer; transition:all 0.15s;
+  background:var(--accent-dim); border:1px solid var(--card-border);
+  color:var(--text); border-radius:var(--radius-sm); padding:8px 18px;
+  font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s;
 }
 .update-banner button:hover{border-color:var(--accent); color:var(--accent)}
-.update-banner .ub-close{color:var(--muted)}
+.update-banner .ub-close{background:transparent; color:var(--muted)}
+.update-banner .ub-close:hover{color:var(--text)}
+
+/* ── 蚁后立绘展示区（设置抽屉顶部 / 启动页空白位） ── */
+.queen-portrait{
+  display:flex; align-items:flex-end; justify-content:center;
+  min-height:200px; max-height:240px;
+  border-radius:var(--radius-lg); overflow:hidden; position:relative;
+  background:
+    radial-gradient(400px 200px at 50% 0%, var(--accent-glow), transparent 70%),
+    var(--surface);
+  border:1px solid var(--card-border);
+}
+.queen-portrait img{
+  height:100%; width:auto; max-width:100%; object-fit:contain;
+  filter:drop-shadow(0 8px 24px var(--accent-glow));
+  pointer-events:none; user-select:none;
+}
+@media (prefers-reduced-motion: reduce){.queen-portrait img{filter:none}}
+
+/* ── 右下角版本徽标 ── */
+.version-badge{
+  position:fixed; right:14px; bottom:12px; z-index:40;
+  font-size:12px; font-variant-numeric:tabular-nums; color:var(--muted);
+  font-family:ui-monospace,Menlo,Consolas,monospace; opacity:0.85;
+  cursor:pointer; user-select:none; transition:opacity 0.15s, color 0.15s;
+}
+.version-badge:hover{opacity:1; color:var(--accent)}
 
 /* ================================================================
    Skills modal
@@ -782,3 +857,327 @@ body{
 [data-theme="light"] .card{box-shadow:0 1px 4px rgba(0,0,0,0.05), 0 0 0 1px var(--card-border)}
 [data-theme="light"] .modal-card{box-shadow:0 16px 48px rgba(0,0,0,0.12)}
 [data-theme="light"] .settings-card{box-shadow:0 20px 56px rgba(0,0,0,0.14), 0 0 0 1px var(--card-border)}
+
+/* ================================================================
+   Premium workbench pass: calmer hierarchy + right settings drawer
+   ================================================================ */
+.topbar{padding:14px 24px; min-height:62px;}
+.brand{font-size:19px; letter-spacing:.1px}
+.main{grid-template-columns:minmax(0,1fr) 360px; gap:20px; padding:20px 24px 24px;}
+.chat-col .card.chat{padding:20px 22px; box-shadow:0 12px 36px rgba(0,0,0,.20),0 0 0 1px var(--card-border);}
+.chat-msgs{padding:18px 10px; gap:10px;}
+.chat-head{padding-bottom:12px; border-bottom:1px solid var(--card-border);}
+.chat-head h2{font-size:13px; letter-spacing:.8px;}
+.monitor-col{gap:14px;}
+.monitor-col .card{padding:14px 16px;}
+.monitor-panels{grid-template-columns:1fr; gap:14px; flex:none;}
+.monitor-panels .card.panel{min-height:180px; max-height:240px;}
+.monitor-col .card.log-card{max-height:250px;}
+.btn{border-radius:7px;}
+
+.modal.settings-modal{align-items:stretch; justify-content:flex-end; padding:0; background:rgba(0,0,0,.42); backdrop-filter:blur(5px);}
+.settings-card{width:min(560px,92vw); max-width:none; height:100vh; max-height:100vh; border-radius:18px 0 0 18px; border-right:0; animation:drawerIn .24s cubic-bezier(.2,.8,.2,1);}
+@keyframes drawerIn{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
+.settings-header{padding:26px 28px 20px;}
+.settings-body{padding:22px 28px 18px;}
+.settings-section{border-radius:12px; padding:15px 16px 17px;}
+.settings-footer{padding:16px 28px 22px; flex-wrap:wrap;}
+.settings-footer .verify-hint{min-width:100%; margin:0 0 4px;}
+@media (prefers-reduced-motion:reduce){.settings-card{animation:none}}
+@media (max-width:900px){
+  .main{grid-template-columns:1fr; padding:14px; overflow:auto;}
+  .monitor-col{overflow:visible;}
+  .monitor-panels{grid-template-columns:1fr 1fr;}
+}
+@media (max-width:620px){
+  .topbar{padding:11px 14px; gap:7px;}
+  .topbar .sponsor,.topbar #btn-check-update{display:none;}
+  .topbar .btn{padding:7px 9px; font-size:12px;}
+  .tag{display:none;}
+  .main{padding:10px; gap:12px;}
+  .chat-col .card.chat{padding:14px;}
+  .monitor-panels{grid-template-columns:1fr;}
+  .settings-card{width:100vw; border-radius:0;}
+}
+.interrupt-note{border-color:rgba(255,183,77,.32)!important; background:rgba(255,183,77,.07)!important;}
+.interrupt-note .think-title{color:#ffb74d;}
+[data-theme="light"] .modal.settings-modal{background:rgba(15,23,42,.22);}
+
+/* ================================================================
+   v1.3.0 UI 追加：全局立绘 + 会话卡片 + Skills 抽屉 + 自定义主题
+   ================================================================ */
+
+/* ── 全局立绘（透明底，固定左侧，不参与交互） ── */
+.queen-stand{
+  position:fixed; left:8px; bottom:0; top:auto;
+  width:180px; height:46vh; max-height:420px;
+  z-index:2; pointer-events:none; user-select:none;
+  display:flex; align-items:flex-end; justify-content:center;
+}
+.queen-stand img{
+  height:100%; width:auto; max-width:100%; object-fit:contain;
+  filter:drop-shadow(0 0 18px var(--accent-glow));
+}
+.queen-stand .qs-glow{
+  position:absolute; inset:auto 10% 0 10%; height:38%;
+  background:radial-gradient(ellipse at center, var(--accent-glow), transparent 70%);
+  filter:blur(18px);
+}
+@media (prefers-reduced-motion: reduce){.queen-stand img{filter:none}}
+@media (max-width:900px){.queen-stand{width:120px; opacity:.85}}
+
+/* ── 对话记录：卡片网格 ── */
+.sessions-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:12px; max-height:52vh; overflow-y:auto; padding:4px;
+}
+.session-card{
+  display:flex; flex-direction:column; gap:8px;
+  padding:12px; border-radius:var(--radius-md);
+  border:1px solid var(--card-border); background:rgba(255,255,255,0.02);
+  transition:border-color .15s, background .15s;
+}
+.session-card:hover{border-color:rgba(76,201,240,.32); background:rgba(76,201,240,.04)}
+.session-card-head{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  font-size:11px; color:var(--muted);
+}
+.session-time{font-family:ui-monospace,Menlo,Consolas,monospace; white-space:nowrap}
+.session-count{
+  font-size:10px; padding:2px 7px; border-radius:4px;
+  border:1px solid var(--card-border); color:var(--accent);
+}
+.session-preview{
+  font-size:13px; color:var(--text); line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  min-height:56px;
+}
+.session-meta{font-size:11px; color:var(--muted)}
+.session-actions{display:flex; gap:8px; margin-top:auto}
+.session-actions .btn{flex:1; padding:7px 6px; font-size:12px}
+.session-del{width:auto; flex:0 0 auto}
+
+/* ── Skills 抽屉（与设置抽屉同款，主题一致） ── */
+.skills-drawer .settings-card{width:min(560px,92vw)}
+.skills-drawer .skills-list{display:flex; flex-direction:column; gap:8px; overflow-y:auto}
+.skills-drawer .skill-item{
+  padding:12px; border-radius:var(--radius-sm);
+  border:1px solid var(--card-border); background:rgba(255,255,255,0.02);
+}
+.skills-drawer .skill-item:hover{border-color:rgba(76,201,240,.30)}
+.skills-drawer .skill-name{font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px}
+.skills-drawer .skill-tag{
+  font-size:10px; padding:2px 6px; border-radius:4px;
+  border:1px solid var(--card-border); color:var(--muted);
+}
+.skills-drawer .skill-meta{font-size:12px; color:var(--muted); margin-bottom:4px}
+.skills-drawer .skill-desc{font-size:13px; color:var(--text); line-height:1.5}
+.skills-drawer .empty{text-align:center; padding:30px 10px}
+
+/* ── 子任务 / 工蚁 展开模态（卡片式排列） ── */
+.modal.ops-modal .modal-card{width:760px; max-width:94vw}
+.ops-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:12px; max-height:60vh; overflow-y:auto; padding:4px;
+}
+.ops-card{
+  display:flex; flex-direction:column; gap:8px;
+  padding:12px; border-radius:var(--radius-md);
+  border:1px solid var(--card-border); background:rgba(255,255,255,0.02);
+}
+.ops-card .ops-head{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.ops-card .ops-title{font-weight:600; font-size:13px; color:var(--text)}
+.ops-card .ops-meta{font-size:11px; color:var(--muted); line-height:1.5}
+.ops-card .pill{align-self:flex-start}
+
+/* ── 自定义主题：用户色变量 ── */
+[data-theme="custom"]{
+  --accent: var(--user-accent, #4CC9F0);
+  --accent-dim: color-mix(in srgb, var(--user-accent, #4CC9F0) 10%, transparent);
+  --accent-glow: color-mix(in srgb, var(--user-accent, #4CC9F0) 20%, transparent);
+}
+
+
+/* ---- 立绘作为聊天区背景：铺满 chat 卡底部，对话气泡覆盖其上 ---- */
+.card.chat{position:relative; overflow:hidden}
+.card.chat .queen-stand{
+  position:absolute; left:50%; bottom:0; transform:translateX(-50%);
+  height:118%; width:auto; max-width:118%;
+  z-index:0; pointer-events:none; display:flex; align-items:flex-end; justify-content:center;
+  opacity:.96;
+}
+.card.chat .queen-stand img{
+  height:100%; width:auto; max-width:100%; object-fit:contain;
+  filter:drop-shadow(0 6px 28px var(--accent-glow));
+}
+.card.chat .queen-stand .qs-glow{
+  position:absolute; inset:auto 5% 0 5%; height:34%;
+  background:radial-gradient(ellipse at center, var(--accent-glow), transparent 70%);
+  filter:blur(16px);
+}
+.card.chat .chat-head, .card.chat .chat-msgs, .card.chat .agent-status, .card.chat .chat-input-row{
+  position:relative; z-index:1;
+}
+@media (prefers-reduced-motion: reduce){.card.chat .queen-stand img{filter:none}}
+
+
+/* ---- 启动立绘 splash：打开时出现一次，自动淡出 ---- */
+.app-splash{
+  position:fixed; inset:0; z-index:9999;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--bg, #0a1120);
+  transition:opacity .7s ease, visibility .7s;
+  pointer-events:auto;
+}
+.app-splash.hide{ opacity:0; visibility:hidden; pointer-events:none; }
+.splash-inner{
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+  text-align:center; max-width:90vw;
+}
+.splash-portrait{
+  height:52vh; max-height:460px; width:auto; object-fit:contain;
+  filter:drop-shadow(0 0 34px var(--accent-glow));
+  animation: splash-rise .9s cubic-bezier(.16,1,.3,1) both;
+}
+.splash-glow{
+  position:absolute; bottom:8vh; left:50%; transform:translateX(-50%);
+  width:42vw; height:26vh;
+  background:radial-gradient(ellipse at center, var(--accent-glow), transparent 70%);
+  filter:blur(20px); pointer-events:none;
+}
+.splash-title{
+  font-size:26px; font-weight:700; letter-spacing:.14em; color:var(--text);
+}
+.splash-sub{ font-size:13px; color:var(--muted); letter-spacing:.08em; }
+@keyframes splash-rise{
+  from{ opacity:0; transform:translateY(18px) scale(.97); }
+  to{ opacity:1; transform:translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce){
+  .splash-portrait{ animation:none; }
+  .app-splash{ transition:none; }
+}
+/* 移除旧的聊天卡内立绘背景规则（已改为 splash） */
+.card.chat .queen-stand{ display:none; }
+
+
+/* ================================================================
+   v1.3.0 UI 修复：对话卡完整显示与滚动 + 状态卡内滚动
+   ================================================================ */
+
+/* 对话卡片完整：flex 列中禁止气泡被压缩，容器负责滚动 */
+.chat-msgs > .bubble{flex-shrink:0}
+.chat-msgs > .bubble.user{max-width:86%}
+.chat-msgs > .bubble.queen{max-width:86%}
+
+/* 正文自适应：卡片随文本长度增长，由聊天容器整体滚动；思维块仍在小卡片内滚动 */
+.bubble-text{max-height:none; overflow:visible;}
+
+/* 思维块：提高高度上限，长思考可内部滚动（不再 220px 截断） */
+.think-body{max-height:36vh}
+
+/* 右下状态卡：全套样式（此前缺失导致溢出） */
+.status-card{display:flex; flex-direction:column; overflow:hidden}
+.status-card .status-summary{
+  display:flex; flex-direction:column; gap:8px;
+  max-height:170px; overflow-y:auto; overflow-x:hidden; padding-right:4px;
+  margin-bottom:8px;
+}
+.status-card .status-row{
+  display:flex; align-items:flex-start; gap:10px;
+  padding:8px 10px; border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.02); border:1px solid var(--card-border);
+}
+.status-card .status-label{
+  flex-shrink:0; font-size:11px; font-weight:600; color:var(--muted);
+  letter-spacing:0.3px; min-width:64px; padding-top:1px;
+}
+.status-card .status-value{
+  flex:1; min-width:0; font-size:13px; color:var(--text);
+  line-height:1.55; word-break:break-word;
+  max-height:100px; overflow-y:auto; overflow-x:hidden;
+}
+.status-card .status-value::-webkit-scrollbar{width:5px}
+.status-card .status-workers{
+  display:flex; flex-direction:column; gap:6px;
+  max-height:190px; overflow-y:auto; overflow-x:hidden;
+  padding:2px 4px 2px 2px;
+}
+.status-card .status-worker{
+  display:flex; align-items:flex-start; gap:8px;
+  font-size:12px; color:var(--muted); flex-shrink:0;
+  padding:7px 8px; border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.015); border:1px solid var(--card-border);
+}
+.status-card .sw-name{
+  color:var(--text); font-weight:600; flex-shrink:0; min-width:56px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;
+}
+.status-card .sw-meta{flex:1; min-width:0; word-break:break-word; line-height:1.5}
+.status-card .status-worker .pill{flex-shrink:0}
+
+/* 状态卡顶栏按钮行（重连/休眠）保持可点 */
+.status-card .toolbar{flex-shrink:0; margin:8px 0 0}
+/* ================================================================
+   v1.3.0 修复批次：展开模态防溢出 + 会话只读查看 + 渲染数量提示
+   ================================================================ */
+
+/* ── 展开模态与面板卡片：长路径/长文本断行，杜绝右侧溢出 ── */
+.ops-card,
+.subtask,
+.worker-card{
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.ops-card .ops-title,
+.ops-card .ops-meta,
+.ops-card .ops-head,
+.subtask .title,
+.subtask .worker,
+.subtask .body,
+.worker-card .name,
+.worker-card .meta,
+.art-list{
+  min-width:0;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.ops-grid{overflow-x:hidden}
+.ops-grid .empty{grid-column:1/-1}
+.ops-grid .more-hint{
+  grid-column:1/-1;
+  font-size:12px; color:var(--muted); text-align:center;
+  padding:8px 0 2px;
+}
+#subtasks .more-hint,
+#workers .more-hint{
+  font-size:11px; color:var(--muted); text-align:center; padding:6px 0 2px;
+}
+
+/* ── 会话内容只读查看模态 ── */
+.session-view-card{width:720px; max-width:94vw}
+.session-view-body{
+  max-height:62vh; overflow-y:auto;
+  padding:6px 4px; display:flex; flex-direction:column; gap:10px;
+  user-select:text; -webkit-user-select:text;
+}
+.sv-item{display:flex; gap:10px; align-items:flex-start}
+.sv-item .sv-avatar{
+  width:28px; height:28px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:700;
+  background:var(--surface); color:var(--muted);
+  border:1px solid var(--card-border); margin-top:4px;
+}
+.sv-item.sv-queen .sv-avatar{
+  color:var(--accent);
+  border-color:rgba(76,201,240,0.4);
+  background:var(--accent-dim);
+}
+.sv-item .sv-body{flex:1; min-width:0}
+.sv-item .sv-text{
+  white-space:pre-wrap; font-size:13px; color:var(--text);
+  line-height:1.7; word-break:break-word;
+}
+.sv-item .think-block{margin-bottom:6px}

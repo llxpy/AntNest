@@ -42,6 +42,8 @@ import traceback
 from datetime import datetime
 
 from api_compat import apply_recommendations, recommend_model_settings
+import antnest_runtime_state as runtime_state
+import memory_tree
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 # 可写路径解析（坑2 修复）：安装版由启动器通过环境变量指到 %LOCALAPPDATA%/AntNest，
@@ -683,7 +685,8 @@ class AntNestCore:
         self._vision_supported = None  # 该模型是否支持图片：None=未校验(仅关键词), True/False
         self._lock = threading.Lock()
         self._ui_settings = {}
-
+        self._current_task = ""
+        self._stream_capture = {"reasoning": "", "content": ""}
     # ---------------- 事件
     def subscribe(self, fn):
         self._subs.append(fn)
@@ -763,6 +766,12 @@ class AntNestCore:
                   detail=f"{getattr(mod,'ANT_MODEL_NAME','?')} · 深度上限 {getattr(mod,'MAX_DEPTH','?')}")
         self.log("sys", f"蚁后就绪：{getattr(mod,'ANT_MODEL_NAME','?')}"
                         f"（token 上限 {getattr(mod,'TOKEN_CAP',0)//1000}k）")
+        try:
+            _mt = memory_tree.load(getattr(mod, "MEMORY_TREE_FILE"))
+            _st = _mt.stats()
+            self.log("sys", f"记忆树就绪：{_st.get('total', 0)} 条 / {_st.get('leaves', 0)} 片叶子（B+树索引 + RAG）")
+        except Exception:
+            pass
         return True, ""
 
     # ---------------- S2 初始化会话（复刻 main() 第 1091-1106 行）
@@ -778,8 +787,11 @@ class AntNestCore:
             m.hints = Path(m.HINT_FILE).read_text(encoding="utf-8") if Path(m.HINT_FILE).exists() else ""
             m.ALLOW_ALL_CLI = True  # UI 无法做终端确认
 
+            m._ensure_model_cap()  # 按需校准模型能力并注入系统提示词（失败不致命）
+
             self._base_system = m.SYSTEM_PROMPT.format(
-                nest_md=m.nest_md or "无", hints=m.hints or "无", env_info=m.ENV_INFO
+                nest_md=m.nest_md or "无", hints=m.hints or "无", env_info=m.ENV_INFO,
+                model_capability=m.model_capability_summary(),
             )
             m.messages = [{"role": "system", "content": self._base_system}]
             trace("S2", "info", f"会话初始化完成，system prompt {len(self._base_system)} 字")
@@ -820,14 +832,17 @@ class AntNestCore:
             trace("S3", "warn", f"热应用部分失败：{e}")
 
     def apply_custom_agent(self, text):
-        """把用户自定义指令追加到 system prompt 尾部（不破坏原 prompt）。"""
+        """把用户定义的行为偏好追加到 system prompt 尾部，不改变权限或系统规则。"""
         m = self.mod
         if not m or not getattr(m, "messages", None):
             return
         try:
             content = self._base_system
             if (text or "").strip():
-                content += "\n\n# 用户自定义指令（最高优先级）\n" + text.strip()
+                content += (
+                    "\n\n# 用户定义的行为偏好\n" + text.strip()
+                    + "\n（仅影响表达和工作方式，不改变工具权限、系统规则或确认要求。）"
+                )
             if m.messages and m.messages[0].get("role") == "system":
                 m.messages[0]["content"] = content
                 trace("S3", "info", f"自定义 Agent 已注入（{len((text or '').strip())} 字）")
@@ -878,9 +893,25 @@ class AntNestCore:
         m.tool_executors["spawn_clone"] = wrapped_spawn
 
         def _ui_stream(phase, text=""):
+            if phase == "reasoning":
+                self._stream_capture["reasoning"] = (
+                    self._stream_capture.get("reasoning", "") + (text or "")
+                )[-5000:]
+            elif phase == "content":
+                self._stream_capture["content"] = (
+                    self._stream_capture.get("content", "") + (text or "")
+                )[-5000:]
             self.emit("stream", phase=phase, text=text or "")
 
         m.UI_STREAM_CB = _ui_stream
+        # 关键：_stream_emit 定义在 antnest_config 模块，读的是它自己的模块级 UI_STREAM_CB。
+        # 只设 m.UI_STREAM_CB（AntNest 壳）会注入落空，导致流式 reasoning/content 全程
+        # 走终端兜底、永远到不了 UI（思维块只有标题没有文本）。两个命名空间必须同步设置。
+        try:
+            import antnest_config as _ac
+            _ac.UI_STREAM_CB = _ui_stream
+        except Exception:
+            pass
         m._ui_patched = True
         trace("S4", "info", "tool_executors.spawn_clone 已包装；UI 流式回调已注入")
 
@@ -979,6 +1010,22 @@ class AntNestCore:
 
     # ---------------- S5 单轮执行
     # ---------------- S5 单轮执行
+    def _maybe_approve_self_modification(self, text):
+        """仅消费已有待确认记录；没有 pending 时，普通“同意”不具备授权效果。"""
+        m = self.mod
+        if not m:
+            return False
+        pending = runtime_state.get_pending_self_modification(m.RUNTIME_STATE_FILE)
+        if not pending or not re.search(
+            r"(同意|确认|允许|批准|可以).*(修改|改动).*(源码|自身|AntNest)|同意修改自身源码|允许修改源码",
+            text or "", re.I,
+        ):
+            return False
+        m.approve_self_modification()
+        runtime_state.clear_pending_self_modification(m.RUNTIME_STATE_FILE)
+        self.log("sys", "用户已明确批准本次 AntNest 自身源码修改")
+        return True
+
     def send(self, text, image_b64=None, image_mime="image/png", skill=""):
         text = (text or "").strip()
         if not text and not image_b64:
@@ -986,6 +1033,8 @@ class AntNestCore:
         if self.busy:
             self.emit("status", state="busy", detail="蚁后正在思考，请稍候")
             return False, "busy"
+        if self.mod:
+            self._maybe_approve_self_modification(text)
         threading.Thread(
             target=self._turn,
             args=(text, image_b64, image_mime, skill or ""),
@@ -995,9 +1044,11 @@ class AntNestCore:
 
     def _turn(self, text, image_b64=None, image_mime="image/png", skill=""):
         self.busy = True
-        self.emit("turn", state="start")
+        self._current_task = text
+        self._stream_capture = {"reasoning": "", "content": ""}
         if self.mod:
             self.mod.agent_reset_cancel()
+        self.emit("turn", state="start")
         display_text = text
         if image_b64:
             display_text += "\n[附带图片]"
@@ -1012,7 +1063,27 @@ class AntNestCore:
                 return
 
             m = self.mod
+            try:
+                _mem = memory_tree.load(getattr(m, "MEMORY_TREE_FILE"))
+                _mem.record_episodic("task", text[:120], text[:500])
+                _mem.save()
+            except Exception:
+                pass
+            self._maybe_approve_self_modification(text)
             start = len(m.messages)
+
+            try:
+                profile = runtime_state.update_profile(m.RUNTIME_STATE_FILE, text)
+                self.emit(
+                    "profile",
+                    strategy=(profile.get("profile") or {}).get("strategy") or {},
+                    preferences=list(((profile.get("profile") or {}).get("preferences") or {}).keys()),
+                )
+                if re.search(r"(以后|今后|从现在起|请把你|你要).*(人设|风格|语气|方式|偏好|习惯)", text):
+                    runtime_state.save_persona_style(m.RUNTIME_STATE_FILE, text[:4000])
+                    self.log("sys", "已将本次对话中的人设/工作方式要求记录为可演进策略")
+            except Exception as e:
+                trace("S5", "warn", f"动态画像更新失败：{e}")
 
             # 图片：先检测当前模型是否支持 vision
             if image_b64:
@@ -1072,21 +1143,56 @@ class AntNestCore:
                     break
             reply_text = (last_asst.get("content") or "").strip() if last_asst else ""
             reply_reason = (last_asst.get("reasoning_content") or "").strip() if last_asst else ""
-            self.emit(
-                "stream",
-                phase="end",
-                text=reply_text,
-                reasoning=reply_reason,
-            )
             if cancelled:
-                self.emit("chat", role="queen", text="⏹ 操作已被强行停止。")
-                trace("S7", "warn", "用户强行停止")
-            elif reply_text:
-                self.emit("chat", role="queen", text=reply_text, reasoning=reply_reason)
-                trace("S7", "info", f"回复 {len(reply_text)} 字，本轮新增 {len(m.messages)-start} 条消息")
+                tool_evidence = "\n".join(
+                    f"{x.get('name', 'tool')}: {str(x.get('content') or '')[:700]}"
+                    for x in m.messages[start:]
+                    if x.get("role") == "tool"
+                )
+                snapshot = {
+                    "reason": "user_stop",
+                    "task": self._current_task,
+                    "decision_summary": self._stream_capture.get("reasoning", "")[-2000:],
+                    "evidence": (
+                        self._stream_capture.get("content", "")
+                        + ("\n" + tool_evidence if tool_evidence else "")
+                    )[-3000:],
+                    "next_step": "下一轮先说明停止原因可能是什么，再根据用户意图继续或调整计划。",
+                }
+                runtime_state.record_stop(m.RUNTIME_STATE_FILE, snapshot)
+                try:
+                    _mem = memory_tree.load(getattr(m, "MEMORY_TREE_FILE"))
+                    _mem.record_episodic("stop", "用户主动停止", snapshot.get("decision_summary", "")[:800])
+                    _mem.save()
+                except Exception:
+                    pass
+                partial_reply = self._stream_capture.get("content", "").strip()
+                stop_text = "本轮在用户主动停止后暂停。下一次运行会先理解停止原因，再继续或调整方案。"
+                if partial_reply:
+                    stop_text += "\n\n已生成的部分回复：\n" + partial_reply[-3000:]
+                m.messages.append({
+                    "role": "assistant",
+                    "content": stop_text,
+                    "reasoning_content": snapshot["decision_summary"],
+                    "stop_snapshot": snapshot,
+                })
+                self.emit("stream", phase="interrupted", text="", reasoning=snapshot["decision_summary"])
+                self.emit("chat", role="queen", text=stop_text, reasoning=snapshot["decision_summary"], stop_snapshot=snapshot)
+                trace("S7", "warn", "用户强行停止，已保存可恢复快照")
             else:
-                self.emit("chat", role="queen", text="（本轮没有文本回复，详见运行日志）")
-                trace("S7", "warn", "本轮无 assistant 文本")
+                self.emit(
+                    "stream",
+                    phase="end",
+                    text=reply_text,
+                    reasoning=reply_reason,
+                )
+                if reply_text:
+                    runtime_state.clear_stop(m.RUNTIME_STATE_FILE)
+                    self.emit("chat", role="queen", text=reply_text, reasoning=reply_reason)
+                    trace("S7", "info", f"回复 {len(reply_text)} 字，本轮新增 {len(m.messages)-start} 条消息")
+                else:
+                    self.emit("chat", role="queen", text="（本轮没有文本回复，详见运行日志）")
+                    trace("S7", "warn", "本轮无 assistant 文本")
         except Exception as e:
             trace("S5", "error", f"turn 异常：{e}\n{traceback.format_exc()}")
             self.log("warn", f"[S5] 执行异常：{e}")
@@ -1094,6 +1200,7 @@ class AntNestCore:
         finally:
             if self.mod:
                 self.mod.agent_reset_cancel()
+                self.mod.SELF_MODIFICATION_APPROVED = False
             self.busy = False
             self.emit("turn", state="end")
             trace("S5", "info", "turn 结束")
@@ -1104,7 +1211,8 @@ class AntNestCore:
             return False, "idle"
         if self.mod:
             self.mod.agent_cancel()
-        self.log("warn", "用户强行停止")
+        self.log("warn", "用户强行停止；正在保存可恢复执行快照")
+        self.emit("recovery", state="pending", task=self._current_task)
         return True, "stopping"
 
     # ---------------- 其它

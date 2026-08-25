@@ -1,9 +1,1 @@
-{
-  "servers": {
-    "example": {
-      "command": "python",
-      "args": ["-m", "your_mcp_server"],
-      "env": {}
-    }
-  }
-}
+{\n  \"servers\": {\n    \"local_fs\": {\n      \"type\": \"stdio\",\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"E:/proj\"],\n      \"env\": {}\n    },\n    \"modelscope_mcp\": {\n      \"type\": \"http\",\n      \"url\": \"https://mcp.modelscope.cn/YOUR_SERVER_ID\",\n      \"headers\": {\n        \"Authorization\": \"Bearer YOUR_ACCESS_TOKEN\"\n      }\n    },\n    \"remote_sse\": {\n      \"type\": \"sse\",\n      \"url\": \"https://example.com/mcp/sse\",\n      \"headers\": {}\n    }\n  }\n}\n
