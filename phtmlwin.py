@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 PHtmlWin — 用写 HTML 的轻松感写 Python 桌面 UI。
 
@@ -26,7 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-__all__ = ["El", "Win", "ui", "el"]
+__all__ = ["El", "ui", "el", "Win"]
 
 
 # --------------------------------------------------------------------------
@@ -228,7 +229,7 @@ input:focus, textarea:focus {
 
 def _apply_window_icon(title, icon_path):
     """窗口显示后把标题栏小图标 + 任务栏大图标设为应用图标。
-    
+
     不依赖 pywebview 版本：旧版 create_window 不支持 icon 参数，
     窗口创建后通过 Windows API 直接设置（WM_SETICON）。
     先按标题找窗口，失败则按当前进程找第一个顶层窗口。
@@ -314,6 +315,24 @@ class Win:
                                        #   / "edgechromium"(WebView2) / "cef"(CEF，IME 候选窗可靠)
         self._window = None
         self._is_admin = False        # 管理员模式标记（用于 IME 修复）
+        self._minimize_on_close = True  # 点 × 时隐藏主窗并显示迷你面板（而非退出）
+
+    # ---- 窗口控制（webview 模式） ----
+    def show(self) -> None:
+        """重新显示主窗口（从小窗还原）。"""
+        if self._backend == "webview" and self._window is not None:
+            try:
+                self._window.show()
+            except Exception:
+                pass
+
+    def hide(self) -> None:
+        """隐藏主窗口（点 × 时调用，配合页面内迷你面板常驻）。"""
+        if self._backend == "webview" and self._window is not None:
+            try:
+                self._window.hide()
+            except Exception:
+                pass
 
     # ---- 声明式 API ----
     def css(self, css: str):
@@ -478,26 +497,10 @@ class Win:
             print(f"[PHtmlWin] 管理员模式：WebView2 用户数据目录 -> {user_data_dir}")
             print(f"[PHtmlWin] 管理员模式：IME 修复已启用")
 
-        # 最小化到任务栏：关闭窗口时最小化而非退出
-        self._minimize_on_close = True
+        # v1.3.0b：不再拦截关闭事件 —— 点窗口 × 即真正退出（进程结束）。
+        # 修复上一版「关闭/退出均失效」：拦截+hide 导致窗口假死、destroy 也被拦。
+        self._minimize_on_close = False
         self._on_close_callback = None
-
-        def _on_closing():
-            """拦截关闭事件：最小化到任务栏而非退出"""
-            if self._minimize_on_close and self._window:
-                try:
-                    # 最小化窗口
-                    self._window.minimize()
-                    return False  # 阻止关闭
-                except Exception:
-                    pass
-            return True  # 允许关闭
-
-        # 注册关闭回调
-        try:
-            self._window.events.closing += lambda: _on_closing()
-        except Exception:
-            pass
 
         try:
             webview.start(**start_kwargs)
@@ -507,9 +510,9 @@ class Win:
             import os
             print(f"[PHtmlWin] WebView2 initialization failed: {e}", file=sys.stderr)
             print("[PHtmlWin] Falling back to browser mode...", file=sys.stderr)
-            # 写入 startup_error.log，方便用户定位问题
             try:
-                ant_home = os.environ.get("ANT_HOME") or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".antnest")
+                ant_home = os.environ.get("ANT_HOME") or os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), ".antnest")
                 os.makedirs(ant_home, exist_ok=True)
                 log_path = os.path.join(ant_home, "startup_error.log")
                 with open(log_path, "w", encoding="utf-8") as f:

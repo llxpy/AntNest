@@ -286,6 +286,13 @@ MCP_HUB = None
 def agent_reset_cancel():
     global AGENT_CANCEL
     AGENT_CANCEL = False
+    # 双命名空间同步：antnest_loop 检查的是 AntNest 壳的 AGENT_CANCEL
+    # （import * 是值拷贝），必须把壳的同名属性也复位，否则停止状态残留。
+    try:
+        import AntNest as _m
+        _m.AGENT_CANCEL = False
+    except Exception:
+        pass
 
 
 def set_stop_snapshot(snapshot):
@@ -329,7 +336,21 @@ def agent_cancel():
     """用户强行停止：中断流式 LLM 与正在运行的所有工蚁。"""
     global AGENT_CANCEL
     AGENT_CANCEL = True
-    resp = _ACTIVE_STREAM_RESP
+    # 双命名空间同步（关键）：antnest_llm 把 resp 写在 AntNest 壳的
+    # _ACTIVE_STREAM_RESP（import * 值拷贝），而 antnest_loop 检查的也是
+    # 壳的 AGENT_CANCEL。只改本模块变量会导致检查永远落空、resp 永远
+    # 为 None——这就是「强行终止没有用」的根因。
+    _A_ = None
+    try:
+        import AntNest as _A_
+        _A_.AGENT_CANCEL = True
+    except Exception:
+        pass
+    resp = None
+    if _A_ is not None:
+        resp = getattr(_A_, "_ACTIVE_STREAM_RESP", None)
+    if resp is None:
+        resp = _ACTIVE_STREAM_RESP
     if resp is not None:
         try:
             resp.close()

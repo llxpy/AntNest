@@ -1181,3 +1181,150 @@ body{
   line-height:1.7; word-break:break-word;
 }
 .sv-item .think-block{margin-bottom:6px}
+/* ===== 右下角迷你常驻窗 ===== */
+.mini-panel{
+  position:fixed; right:16px; bottom:16px; z-index:9998;
+  width:300px; border-radius:14px; overflow:hidden;
+  background:var(--card); border:1px solid var(--accent-glow);
+  box-shadow:0 10px 30px rgba(0,0,0,0.45);
+  font-size:13px; color:var(--text);
+}
+.mini-head{
+  display:flex; align-items:center; gap:8px; padding:10px 12px;
+  background:linear-gradient(135deg, var(--accent-dim), transparent);
+  border-bottom:1px solid var(--card-border);
+}
+.mini-logo{font-size:16px}
+.mini-title{flex:1; font-weight:600}
+.mini-close{
+  background:transparent; border:none; color:var(--muted);
+  font-size:16px; cursor:pointer; padding:2px 6px; border-radius:6px;
+}
+.mini-close:hover{color:var(--warn); background:rgba(255,107,107,0.10)}
+.mini-state{
+  padding:8px 12px; color:var(--muted); font-size:12px;
+  border-bottom:1px solid var(--card-border);
+}
+.mini-input-row{display:flex; gap:8px; padding:10px 12px}
+.mini-input-row input{
+  flex:1; background:rgba(255,255,255,0.04); color:var(--text);
+  border:1px solid var(--card-border); border-radius:8px; padding:8px 10px;
+  font-size:13px; outline:none;
+}
+.mini-input-row input:focus{border-color:var(--accent)}
+.mini-restore{margin:0 12px 12px; width:calc(100% - 24px)}
+/* 模型快速切换下拉（与 skill-select 同款） */
+.model-select{
+  background:rgba(255,255,255,0.04); border:1px solid var(--card-border);
+  border-radius:var(--radius-md); padding:10px 12px; color:var(--text);
+  font-size:13px; outline:none; max-width:180px; cursor:pointer;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  transition:border-color 0.2s;
+}
+.model-select:focus{border-color:rgba(76,201,240,0.45)}
+/* ==== v1.3.0：工作空间侧栏 ==== */
+.workspace-col{
+  display:flex; flex-direction:column; gap:10px;
+  width:180px; min-width:180px; flex-shrink:0;
+  padding:14px 10px; border-right:1px solid var(--card-border);
+  background:rgba(0,0,0,0.12);
+}
+.workspace-col h2{
+  margin:0; font-size:12px; font-weight:700; letter-spacing:.6px;
+  text-transform:uppercase; color:var(--muted);
+}
+.ws-hint{font-size:11px; color:var(--muted); min-height:14px}
+.ws-list{display:flex; flex-direction:column; gap:6px; overflow-y:auto; max-height:70vh}
+.ws-item{
+  display:flex; align-items:center; gap:6px; padding:8px 10px;
+  border-radius:var(--radius-sm); border:1px solid var(--card-border);
+  cursor:pointer; font-size:13px; color:var(--text);
+  background:rgba(255,255,255,0.02); transition:all .15s;
+}
+.ws-item:hover{border-color:var(--card-hover-border); background:rgba(255,255,255,0.04)}
+.ws-item.active{border-color:var(--accent); color:var(--accent); background:var(--accent-dim)}
+.ws-name{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ws-del{
+  background:transparent; border:none; color:var(--muted);
+  font-size:15px; cursor:pointer; padding:0 3px; line-height:1;
+}
+.ws-del:hover{color:var(--warn)}
+.ws-add{width:100%; font-size:12px; padding:8px}
+/* ================================================================
+   v1.3.0b — 最终布局：.main flex（工作空间左窄条不挤压）+ 工作空间美化
+   ================================================================ */
+.main{
+  display:flex; flex-direction:row; align-items:stretch;
+  gap:18px; padding:20px 24px 24px; overflow:hidden; min-height:0;
+}
+.workspace-col{
+  flex:0 0 176px; min-width:176px; max-width:176px;
+  display:flex; flex-direction:column; gap:12px;
+  background:var(--surface);
+  border:1px solid var(--card-border); border-radius:var(--radius-lg);
+  padding:14px 12px; overflow-y:auto; overflow-x:hidden;
+}
+.workspace-col h2{
+  margin:0; font-size:12px; font-weight:700; letter-spacing:.6px;
+  text-transform:uppercase; color:var(--muted);
+  display:flex; align-items:center; gap:8px; padding:2px 4px;
+}
+.workspace-col h2::before{
+  content:""; width:3px; height:12px; border-radius:2px;
+  background:var(--accent); opacity:.5; flex-shrink:0;
+}
+.ws-hint{font-size:11px; color:var(--muted); min-height:13px; padding:0 4px; line-height:1.4}
+.ws-list{display:flex; flex-direction:column; gap:6px; flex:1}
+.ws-item{
+  position:relative; display:flex; align-items:center; gap:8px;
+  padding:9px 10px 9px 16px; border-radius:10px;
+  cursor:pointer; font-size:13px; color:var(--text);
+  border:1px solid transparent;
+  transition:all .15s ease;
+}
+.ws-item::before{
+  content:""; position:absolute; left:4px; top:50%; transform:translateY(-50%);
+  width:3px; height:16px; border-radius:2px;
+  background:var(--accent); opacity:0; transition:opacity .15s;
+}
+.ws-item:hover{background:var(--surface-hover); border-color:var(--card-border)}
+.ws-item.active{
+  background:var(--accent-dim);
+  border-color:rgba(76,201,240,.28);
+  box-shadow:inset 0 0 0 1px rgba(76,201,240,.10);
+}
+.ws-item.active::before{opacity:1}
+.ws-name{
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:500;
+}
+.ws-item.active .ws-name{color:var(--accent); font-weight:600}
+.ws-del{
+  flex-shrink:0; background:transparent; border:1px solid transparent;
+  color:var(--muted); font-size:14px; line-height:1; cursor:pointer;
+  width:20px; height:20px; border-radius:6px; opacity:0; transition:all .15s;
+}
+.ws-item:hover .ws-del{opacity:.7}
+.ws-del:hover{color:var(--warn); border-color:rgba(255,107,107,.35); background:rgba(255,107,107,.10); opacity:1}
+.ws-add{
+  width:100%; justify-content:center; font-size:12px;
+  border-style:dashed; padding:9px 8px;
+}
+.chat-col{flex:1 1 auto; min-width:0}
+.monitor-col{flex:0 0 340px; min-width:0}
+
+@media (max-width:1180px){
+  .main{flex-wrap:wrap; overflow-y:auto}
+  .workspace-col{flex:1 1 100%; min-width:0; max-width:none; flex-direction:row; flex-wrap:wrap; align-items:center; gap:8px}
+  .workspace-col h2{flex:0 0 100%}
+  .ws-list{flex:1 1 auto; flex-direction:row; overflow-x:auto; overflow-y:hidden}
+  .ws-item{flex-shrink:0; max-width:180px}
+  .ws-hint{flex:0 0 100%}
+  .ws-add{flex:0 0 auto; width:auto}
+  .monitor-col{flex:1 1 100%}
+}
+@media (max-width:620px){
+  .main{gap:12px; padding:12px}
+  .chat-col{flex:1 1 100%}
+}
+[data-theme="light"] .workspace-col{background:linear-gradient(180deg, rgba(15,23,42,.03), transparent)}

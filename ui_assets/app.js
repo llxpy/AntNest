@@ -500,3 +500,98 @@ function renderSessionView(msgs){
     return '<div class="'+cls+'"><span class="sv-avatar">'+av+'</span><div class="sv-body">'+body+'</div></div>';
   }).join("");
 }
+// ===== 右下角迷你常驻窗 =====
+function showMiniPanel(){
+  var m=document.getElementById("mini-panel");
+  if(m) m.style.display="block";
+  var s=document.getElementById("mini-state");
+  if(s) s.textContent=(window.PHW && window.PHW.busy) ? "执行中…" : "待命";
+}
+function hideMiniPanel(){
+  var m=document.getElementById("mini-panel");
+  if(m) m.style.display="none";
+}
+function restoreWindow(){
+  hideMiniPanel();
+  phwCall("restore_window",{});
+}
+function miniSend(){
+  var i=document.getElementById("mini-input");
+  if(!i || !i.value.trim()) return;
+  var v=i.value.trim();
+  i.value="";
+  phwCall("mini_send",{value:v});
+}
+function quitApp(){
+  phwCall("quit",{});
+}
+// ==== v1.3.0：模型快速切换 ====
+function onModelChange(v){
+  if(!v || v === "") return;
+  phwCall("pick_model",{value:v});
+}
+function setModelSelect(v){
+  var s=document.getElementById("model-select");
+  if(s) s.value=v||"";
+}
+function refreshModelSelect(){
+  var s=document.getElementById("model-select");
+  if(!s) return;
+  var cur=s.value;
+  var opts=(window.MODEL_OPTIONS||[]).filter(function(x){return x && x.trim();});
+  if(opts.indexOf(cur)===-1 && cur) opts.push(cur);
+  s.innerHTML=opts.map(function(m){
+    var sel = (m===cur) ? " selected" : "";
+    return '<option value="'+m+'"'+sel+'>'+m+'</option>';
+  }).join("");
+}
+// ==== v1.3.0：工作空间 ====
+var WS_STATE = {current: null, list: []};
+function renderWorkspaces(d){
+  if(!d) return;
+  WS_STATE = d;
+  var box = document.getElementById("ws-list"); if(!box) return;
+  box.innerHTML = (d.list||[]).map(function(w){
+    var cur = (w.path === d.current) ? " active" : "";
+    return '<div class="ws-item'+cur+'" onclick="switchWorkspace(\''+w.path+'\')" title="'+escHtml(w.path)+'">'
+      + '<span class="ws-name">'+escHtml(w.name)+'</span>'
+      + '<button class="ws-del" onclick="event.stopPropagation(); removeWorkspace(\''+w.path+'\')" title="从列表移除">×</button>'
+      + '</div>';
+  }).join("") || '<div class="muted" style="padding:10px 4px">还没有工作空间</div>';
+  setWsHint("");
+}
+function wsListRefresh(){ phwCall("ws_list",{}); }
+function setWsHint(t){ var h=document.getElementById("ws-hint"); if(h) h.textContent=t||""; }
+function switchWorkspace(path){
+  if(!path) return;
+  setWsHint("切换中…");
+  phwCall("ws_switch",{path:path});
+}
+function addWorkspace(){ phwCall("ws_add",{}); }
+function removeWorkspace(path){ phwCall("ws_remove",{path:path}); }
+function quoteJs(s){ return "'"+(s||"").replace(/\/g,"\\\\").replace(/'/g,"\'")+"'"; }
+// ==== v1.3.0：工作空间 ====
+function renderWorkspaces(d){
+  var box=document.getElementById("ws-list"); if(!box) return;
+  setWsHint("");
+  if(!d || !d.list || !d.list.length){
+    box.innerHTML='<div class="muted" style="padding:8px 2px">还没有工作空间，点下方按钮添加。</div>'; return;
+  }
+  box.innerHTML=d.list.map(function(w){
+    var cur = (w.path === (d.current||"")) ? " active" : "";
+    return '<div class="ws-item'+cur+'" onclick="switchWorkspace('+quoteJs(w.path)+')" title="'+escHtml(w.path)+'">'
+         + '<span class="ws-name">'+escHtml(w.name||"")+'</span>'
+         + '<button class="ws-del" onclick="event.stopPropagation(); removeWorkspace('+quoteJs(w.path)+')" title="从列表移除">×</button>'
+         + '</div>';
+  }).join("");
+}
+function wsListRefresh(){ phwCall("ws_list",{}); }
+function setWsHint(t){ var h=document.getElementById("ws-hint"); if(h) h.textContent=t||""; }
+function quoteJs(s){ return "'"+(s||"").replace(/\\/g,"\\\\").replace(/'/g,"\\'")+"'"; }
+function switchWorkspace(path){
+  if(!path) return;
+  setWsHint("切换中…");
+  phwCall("ws_switch",{path:path});
+}
+function addWorkspace(){ setWsHint("选择文件夹…"); phwCall("ws_add",{}); }
+function removeWorkspace(path){ phwCall("ws_remove",{path:path}); }
