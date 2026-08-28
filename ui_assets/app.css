@@ -1328,3 +1328,39 @@ body{
   .chat-col{flex:1 1 100%}
 }
 [data-theme="light"] .workspace-col{background:linear-gradient(180deg, rgba(15,23,42,.03), transparent)}
+/* ================================================================
+   工作空间·可折叠（与 app.js 折叠函数对齐）
+   ================================================================ */
+.ws-head{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+}
+.ws-head h2{flex:1; min-width:0}
+.ws-toggle-btn{
+  flex-shrink:0; background:transparent; border:1px solid var(--card-border);
+  color:var(--muted); border-radius:6px; width:24px; height:24px;
+  font-size:14px; line-height:1; cursor:pointer; transition:all .15s;
+}
+.ws-toggle-btn:hover{color:var(--accent); border-color:var(--accent); background:var(--accent-dim)}
+/* 折叠竖条：默认隐藏；折叠状态下显示并居中 */
+.ws-collapsed-bar{
+  display:none; writing-mode:vertical-rl; text-orientation:mixed;
+  flex:1; cursor:pointer; user-select:none; color:var(--muted);
+  letter-spacing:.6em; font-size:12px; transition:color .15s;
+  margin:0 auto; align-self:center;
+}
+.ws-collapsed-bar:hover{color:var(--accent)}
+/* 折叠态：列收窄为竖条；隐藏列表/提示/添加按钮/头部文字 */
+.workspace-col.ws-collapsed{
+  flex:0 0 40px; min-width:40px; max-width:40px;
+  padding:12px 4px; overflow:hidden;
+}
+.workspace-col.ws-collapsed .ws-head{flex-direction:column}
+.workspace-col.ws-collapsed .ws-head h2{display:none}
+.workspace-col.ws-collapsed .ws-toggle-btn{writing-mode:vertical-rl}
+.workspace-col.ws-collapsed .ws-hint,
+.workspace-col.ws-collapsed .ws-list,
+.workspace-col.ws-collapsed .ws-add{display:none}
+.workspace-col.ws-collapsed .ws-collapsed-bar{display:block}
+@media (max-width:1180px){
+  .workspace-col.ws-collapsed{flex:0 0 40px; min-width:40px; max-width:40px}
+}
