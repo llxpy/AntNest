@@ -1364,3 +1364,68 @@ body{
 @media (max-width:1180px){
   .workspace-col.ws-collapsed{flex:0 0 40px; min-width:40px; max-width:40px}
 }
+
+/* ================================================================
+   v1.3.0 UI 统一化（幂等追加）
+   ================================================================ */
+/* ---- 文本输入框 textarea 化：自动换行增高 ---- */
+.chat-input{
+  min-height:34px; max-height:120px; resize:none;
+  overflow-y:auto; line-height:1.55;
+  white-space:pre-wrap; word-break:break-word;
+  font-family:inherit;
+}
+.chat-input::-webkit-scrollbar{width:4px}
+.chat-input::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35); border-radius:2px}
+
+/* ---- 下拉框（Skill / 模型）美化：统一样式 + 箭头 ---- */
+.skill-select, .model-select{
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23888888'/></svg>");
+  background-repeat:no-repeat; background-position:right 10px center;
+  background-size:10px 6px; padding-right:28px !important;
+  cursor:pointer; min-height:34px;
+}
+.skill-select:hover, .model-select:hover{border-color:var(--accent); background-color:var(--surface-hover)}
+.skill-select:focus, .model-select:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); outline:none}
+
+/* ---- 主题统一：黑/白共用输入/下拉 token ---- */
+[data-theme="light"]{
+  --input-bg:#f8fafc; --input-border:rgba(15,23,42,.16);
+}
+[data-theme="dark"], [data-theme="dim-dark"], :root{
+  --input-bg:rgba(18,26,42,.35); --input-border:rgba(255,255,255,.10);
+}
+.chat-input, .skill-select, .model-select,
+.field input, .field textarea{
+  background:var(--input-bg, rgba(255,255,255,.05));
+  border-color:var(--input-border, var(--card-border));
+  color:var(--text);
+}
+[data-theme="light"] .chat-input,
+[data-theme="light"] .skill-select,
+[data-theme="light"] .model-select{color:#1a2332}
+
+/* ---- 工作空间文件预览面板 ---- */
+.ws-preview{
+  display:none; margin-top:10px; padding-top:10px;
+  border-top:1px solid var(--card-border); font-size:12px;
+}
+.ws-preview-title{
+  color:var(--muted); font-weight:600; letter-spacing:.3px;
+  margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.ws-preview-files{
+  display:flex; flex-direction:column; gap:2px;
+  max-height:200px; overflow-y:auto;
+}
+.ws-pfile{
+  display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px;
+  font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
+  color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ws-pfile:hover{background:var(--surface-hover)}
+.ws-pfile::before{content:""; width:6px; height:6px; border-radius:2px; background:var(--accent); opacity:.45; flex-shrink:0}
+.ws-pfile.dir{color:var(--accent)}
+.ws-pfile.dir::before{border-radius:50%; opacity:1}
+.ws-preview-enter{width:100%; margin-top:8px; font-size:12px}
