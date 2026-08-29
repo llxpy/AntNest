@@ -1429,3 +1429,101 @@ body{
 .ws-pfile.dir{color:var(--accent)}
 .ws-pfile.dir::before{border-radius:50%; opacity:1}
 .ws-preview-enter{width:100%; margin-top:8px; font-size:12px}
+/* ================================================================
+   v1.3.0 — UI 修复：输入行高度统一 + 白色主题优化
+   ================================================================ */
+
+/* ---- 输入行：三个控件等高对齐（38px）---- */
+.chat-input-row{
+  align-items:center;            /* 原 flex-end，改为 center 让下拉/输入视觉对齐 */
+}
+.chat-input-row .skill-select,
+.chat-input-row .model-select{
+  height:38px; min-height:38px; max-height:38px;
+  padding:0 30px 0 12px;         /* 垂直居中：去掉上下 padding，用行高 */
+  line-height:36px;              /* 38 - 2 边框 */
+  box-sizing:border-box;
+  font-size:13px;
+}
+.chat-input-row .chat-input{
+  flex:1; height:38px; min-height:38px; max-height:120px;  /* 起步 38，多行可增到 120 */
+  padding:8px 12px;              /* 8*2 + 内容 ≈ 38，垂直居中舒适 */
+  box-sizing:border-box;
+  resize:none;
+}
+/* 发送按钮同高 */
+.chat-input-row .btn{
+  height:38px; min-height:38px;
+  display:inline-flex; align-items:center; justify-content:center;
+  box-sizing:border-box;
+}
+/* 文字输入时 textarea 增高后仍与下拉顶部对齐（flex 容器内，textarea 顶对齐） */
+.chat-input-row{width:100%}
+
+/* ---- 白色主题优化：纯白卡片 + 清晰分层 + 强对比 ---- */
+[data-theme="light"]{
+  --bg-top:#eef2f7; --bg-bottom:#e6ebf2;         /* 页面更干净 */
+  --accent:#1a73e8; --accent-dim:rgba(26,115,232,0.10);
+  --accent-glow:rgba(26,115,232,0.18);
+  --card:#ffffff; --card-border:rgba(15,23,42,0.10);   /* 纯白卡片 + 更实边框 */
+  --card-hover-border:rgba(26,115,232,0.30);
+  --text:#10213d; --muted:#4a5b72;               /* 正文更实、次要对比更高 */
+  --success:#16a34a; --warn:#dc2626;
+  --surface:#f4f7fb; --surface-hover:#ebf1f8;    /* 输入区白底浅灰 */
+  --topbar-bg:rgba(255,255,255,0.92);
+  --agent-glow:rgba(26,115,232,0.06);
+  --bubble-queen:#f7f9fc; --bubble-user:rgba(26,115,232,0.10);
+  --shadow-sm:0 1px 2px rgba(16,33,61,0.06);
+  --shadow-md:0 6px 18px rgba(16,33,61,0.10);
+  --shadow-lg:0 18px 46px rgba(16,33,61,0.14);
+  --shadow-card:0 1px 2px rgba(16,33,61,0.04), 0 0 0 1px var(--card-border);
+  /* 输入控件白底 */
+  --input-bg:#ffffff; --input-border:rgba(16,33,61,0.16);
+  --select-bg:#ffffff; --card-overlay:rgba(16,33,61,0.05);
+}
+/* 白主题下输入控件统一 */
+[data-theme="light"] .chat-input-row .skill-select,
+[data-theme="light"] .chat-input-row .model-select,
+[data-theme="light"] .chat-input-row .chat-input,
+[data-theme="light"] .field input,
+[data-theme="light"] .field textarea{
+  background:#ffffff;
+  border-color:rgba(16,33,61,0.16);
+  color:#10213d;
+  box-shadow:0 1px 2px rgba(16,33,61,0.04) inset;
+}
+[data-theme="light"] .chat-input-row .skill-select:hover,
+[data-theme="light"] .chat-input-row .model-select:hover,
+[data-theme="light"] .chat-input-row .chat-input:hover{
+  border-color:rgba(26,115,232,0.35);
+}
+[data-theme="light"] .chat-input-row .skill-select:focus,
+[data-theme="light"] .chat-input-row .model-select:focus,
+[data-theme="light"] .chat-input-row .chat-input:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(26,115,232,0.14);
+}
+/* 白主题卡片层次 */
+[data-theme="light"] .card{
+  background:#ffffff;
+  box-shadow:0 1px 3px rgba(16,33,61,0.06), 0 8px 24px rgba(16,33,61,0.06);
+}
+[data-theme="light"] .card:hover{border-color:rgba(26,115,232,0.22)}
+/* 白主题气泡 */
+[data-theme="light"] .bubble.queen{
+  background:#ffffff;
+  border-color:rgba(16,33,61,0.10);
+}
+[data-theme="light"] .bubble.user{
+  background:rgba(26,115,232,0.10);
+  border-color:rgba(26,115,232,0.22);
+}
+/* 白主题 think 块 */
+[data-theme="light"] .think-block{
+  background:#f7f9fc; border-color:rgba(26,115,232,0.16);
+}
+/* 白主题下拉箭头颜色 */
+[data-theme="light"] .skill-select,
+[data-theme="light"] .model-select{
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%234a5b72'/></svg>");
+}
