@@ -1527,3 +1527,44 @@ body{
 [data-theme="light"] .model-select{
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%234a5b72'/></svg>");
 }
+/* ================================================================
+   v1.3.0 — 输入行水平对齐（最终覆盖）：select/textarea/btn 同高 38、同一水平面
+   ================================================================ */
+.chat-input-row{
+  display:flex; align-items:center; gap:8px; flex-wrap:nowrap;
+}
+.chat-input-row > *{
+  height:38px !important; min-height:38px !important; max-height:38px !important;
+  box-sizing:border-box;
+}
+.chat-input-row .skill-select,
+.chat-input-row .model-select{
+  height:38px !important;
+  padding:0 30px 0 12px !important;
+  margin:0 !important;
+  vertical-align:middle;
+}
+/* 文本与图标按钮所在的包裹列：严格 38 高，content 垂直居中 */
+.chat-input-row .chat-input-wrap{
+  flex:1 1 auto; min-width:0;
+  display:flex; flex-direction:column; justify-content:center;
+  height:38px !important;
+}
+.chat-input-row .chat-input-wrap > *{flex-shrink:0}
+.chat-input-row .chat-input-wrap .image-preview-row{display:none}
+.chat-input-row .chat-input{
+  height:38px !important; min-height:38px !important;
+  padding:0 42px 0 12px !important;   /* 去掉旧 10px 上下白边，与 select 同基线 */
+  line-height:38px !important;        /* 单行文本垂直居中 */
+  margin:0 !important;
+  vertical-align:middle;
+}
+/* 多行增高时：清掉固定行高，恢复正常换行（仍在同列内，容器 38 时保持） */
+.chat-input{
+  max-height:120px; resize:none;
+}
+.chat-input-row .btn{
+  height:38px !important;
+  display:inline-flex; align-items:center; justify-content:center;
+  box-sizing:border-box; margin:0;
+}
