@@ -30,6 +30,20 @@
 
 ---
 
+## 📸 界面预览
+
+启动立绘、主界面与运行中的任务监控：
+
+<p align="center">
+  <img src="ui_assets/screenshot-splash.png" width="720" alt="AntNest 启动立绘"/>
+  <br/>
+  <img src="ui_assets/screenshot-chat.png" width="720" alt="AntNest 主界面"/>
+  <br/>
+  <img src="ui_assets/screenshot-main.png" width="720" alt="AntNest 运行中的任务监控"/>
+</p>
+
+---
+
 ## 🏗 架构：为什么是「蚁后 / 工蚁」
 
 ```mermaid
