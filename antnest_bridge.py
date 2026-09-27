@@ -929,6 +929,14 @@ class AntNestCore:
             title = (str(label).strip() or _classify_command(command))[:80]
             # 工蚁：给人看的执行动作描述
             name = (str(label).strip() or _classify_command(command) + f" (工蚁-{wid})")[:60]
+            # 把 wid 绑进计划节点（spawn_clone 侧已按 task_id 绑过，这里补 UI 侧 id）
+            try:
+                import antnest_plan as _plan
+                _node = _plan.ensure_node_for_spawn(title=title, worker_id=wid)
+                if _node is not None:
+                    self.emit("plan", **_plan.snapshot())
+            except Exception as e:
+                trace("S6", "debug", f"计划节点派生失败（忽略）：{e}")
             trace("S6", "info", f"派发 #{wid} {name} :: {title}")
             self.emit("worker", id=wid, name=name, status="run",
                       task=title, note="隔离目录已建，执行中")
@@ -971,6 +979,12 @@ class AntNestCore:
                 except Exception:
                     pass
             _ev_worker_done(status, wid, title, cost, task_id)
+            try:
+                import antnest_plan as _plan
+                if _plan.complete_node_for_spawn(task_id, status, note) is not None:
+                    self.emit("plan", **_plan.snapshot())
+            except Exception as e:
+                trace("S6", "debug", f"计划节点推进失败（忽略）：{e}")
             return result
 
         m.tool_executors["spawn_clone"] = wrapped_spawn
@@ -1136,8 +1150,12 @@ class AntNestCore:
         _events.set_current_task_id(_tid)
         self._task_id = _tid
         _events.emit(_events.Event.TASK_CREATED, task_id=_tid, goal=str(text)[:300])
+        # 新回合 = 新计划。旧计划已随上一个回合落进 events/checkpoint。
+        import antnest_plan as _plan
+        _plan.reset(goal=str(text)[:200])
         self.emit("task_id", task_id=_tid)
         self.emit("turn", state="start")
+        self.emit("plan", **_plan.snapshot())
         display_text = text
         if image_b64:
             display_text += "\n[附带图片]"

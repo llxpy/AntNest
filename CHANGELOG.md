@@ -456,6 +456,89 @@ audit.log                仅安全事件    → 可追责
 
 ---
 
+### Step 5 — Plan DAG（显式计划层 + 自动派生兜底）
+
+#### 解决的问题
+
+v1.3.1 的「计划」只以自由文本存在于 `reasoning_content` 与聊天气泡里。UI 上的
+`SUBTASKS` 面板是**自动派生**的——一次 `spawn_clone` 对应一条，与蚁后实际想做
+什么无关。这正是路线图 §3 要解决的：「蚁后负责规划、工蚁负责执行」在产品层
+从未真正体现。
+
+#### 双数据源（缺一不可）
+
+1. **LLM 显式规划** —— 新增 `update_plan` 工具。`level=READ`、`mutating=False`：
+   它不碰任何文件、不执行任何命令，只登记意图。标成 WRITE 会让「只读审阅模式」
+   下无法规划。
+2. **自动派生（兜底，必须有）** —— `spawn_clone` 通过权限闸门后，若 LLM 从未
+   显式规划过则自动开一个节点并认领该工蚁。
+
+第 2 条不是可选的。flash 类模型经常不按格式调工具；只依赖 `update_plan` 会让
+Plan 面板在多数真实任务里是空的，整个特性等于没做。
+
+**硬指标已写成测试**：任何含 `spawn_clone` 且真正执行的回合，
+`ui_render.render_plan(plan.snapshot())` 必须非空。
+
+#### 环检测必须整体拒绝
+
+`update_plan` 与 `ready_nodes()` 都检环。有环则**整体拒绝该次更新并保留原计划**——
+半个新计划比旧计划更糟，而一个有环的 DAG 会让 `ready_nodes()` 永远返回空、
+计划直接死锁。被拒时返回 `error` + `hint`（告诉模型怎么改），并记 `PLAN_REJECTED`。
+
+#### 三个接线点
+
+| 位置 | 动作 |
+|------|------|
+| `spawn_clone` 权限通过后 | `ensure_node_for_spawn()` 派生/复用节点，绑 `task_id → node_id` |
+| `spawn_clone` 归巢后 | `complete_node_for_spawn()` 按 task_id 反查并推进 |
+| `wrapped_spawn` | 补 `wid` 绑定，并向 UI `emit("plan", ...)` |
+
+#### UI 渲染（`ui_render.py` + `app.css`）
+
+新增三个纯函数，无 webview 依赖，可直接单测：
+
+- `render_plan(plan)` —— 按依赖深度缩进的树形面板，节点带状态字形
+  （`○ ● ✓ ✗ − ⊘`）、工蚁归属、结果摘要、错误信息，顶部有进度条。
+- `render_permissions(rows)` —— 路线图 §10 的 ✓/✗ 权限徽章。
+- `render_timeline(records)` —— 路线图 §5 的事件时间线。
+
+所有文本过 `esc()`：模型产出的 title / result_summary 可能含尖括号或脚本标签，
+`tests/test_ui_plan_render.py` 有专门的注入用例。样式进 `app.css`，含
+`prefers-reduced-motion` 降级（running 节点的脉冲动画）。
+
+#### 自己的测试抓出的 2 个 bug
+
+| Bug | 后果 |
+|-----|------|
+| `replace()` 里旧索引取在赋值**之后** | LLM 重建计划时，已完成节点的进度**全被抹掉**。`old = self._index()` 拿到的是新列表，条件恒为假 |
+| 计划派生排在权限闸门**之前** | 被拒绝的 `rm -rf /` 也会在计划里留下节点——但那件事根本没发生，计划会说谎 |
+
+两条都由测试钉死（`test_rebuild_keeps_completed_state`、
+`test_denied_spawn_leaves_plan_empty`）。
+
+#### 测试
+
+- `tests/test_plan.py`（49 用例）：DAG 拓扑、环拒绝、进度保留、工蚁绑定、
+  自动派生、快照往返、提示词渲染。
+- `tests/test_ui_plan_render.py`（32 用例）：HTML 结构、缩进深度、注入安全、
+  样式确实进了 app.css。
+- `tests/test_plan_wiring.py`（15 用例）：端到端——真派一次工蚁验证计划被派生
+  且归巢后节点完成；含深度拦截与权限拒绝时计划保持为空。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **UI 还没接上 plan 事件** | `render_plan` 已就绪、bridge 已 emit `plan`，但 `prototype_antnest.py` 侧没有 `PLAN` 状态与渲染分支 | **Step 8** |
+| **执行仍是顺序的** | `ready_nodes()` 表达的是依赖结构，不是并发承诺。`agent_single_loop` 顺序跑 `tool_calls` | 遗留 R6，不在本轮 |
+| `max_clones` 仍无代码强制 | 只用于填 prompt 占位符 | 遗留 |
+| 计划不进系统提示 | `Plan.to_prompt()` 已实现但没接进 `_with_retrieved_memory` | Step 6 随 checkpoint 一起接 |
+| 计划不持久 | 进程重启即丢 | Step 6 |
+| 节点无重试语义 | `attempts` 字段在，但没有「失败后重试该节点」的流程 | 遗留 |
+| `MAX_NODES=60` 是硬编码 | 没进 config | 遗留 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

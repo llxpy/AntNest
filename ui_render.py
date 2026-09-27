@@ -54,6 +54,167 @@ def _queen_avatar_html() -> str:
     return f'<span class="avatar queen-avatar">{_FALLBACK_QUEEN_AVATAR_SVG}</span>'
 
 
+# ---------------------------------------------------------------------------
+# Plan DAG 面板（v1.4）
+# ---------------------------------------------------------------------------
+
+_PLAN_GLYPH_CLASS = {
+    "pending": "plan-pending",
+    "running": "plan-running",
+    "completed": "plan-done",
+    "failed": "plan-failed",
+    "skipped": "plan-skipped",
+    "blocked": "plan-blocked",
+}
+
+
+def render_plan(plan: dict) -> str:
+    """渲染计划面板（路线图 §3 的树形 PLAN）。
+
+    按依赖深度缩进，让「谁卡在谁后面」一眼可见。空计划返回空串——
+    调用方据此决定是否显示整个面板。
+    """
+    if not isinstance(plan, dict):
+        return ""
+    nodes = plan.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        return ""
+
+    def _depth(n: dict, seen: frozenset) -> int:
+        deps = [str(d) for d in (n.get("depends_on") or [])]
+        deps = [d for d in deps if d not in seen]
+        if not deps:
+            return 0
+        idx = {str(x.get("id")): x for x in nodes if isinstance(x, dict)}
+        best = 0
+        for d in deps:
+            parent = idx.get(d)
+            if parent is not None:
+                best = max(best, 1 + _depth(parent, seen | {str(n.get("id"))}))
+        return best
+
+    goal = str(plan.get("goal") or "").strip()
+    progress = plan.get("progress") if isinstance(plan.get("progress"), dict) else {}
+    pct = int(progress.get("percent") or 0)
+
+    parts: list[str] = ['<div class="plan-panel">']
+    if goal:
+        parts.append(f'<div class="plan-goal">{esc(goal)}</div>')
+    parts.append(
+        f'<div class="plan-bar"><div class="plan-bar-fill" style="width:{pct}%"></div>'
+        f'<span class="plan-pct">{pct}%</span></div>'
+    )
+    parts.append('<ul class="plan-list">')
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        status = str(node.get("status") or "pending")
+        nid = str(node.get("id") or "")
+        title = str(node.get("title") or "")
+        glyph = {"pending": "○", "running": "●", "completed": "✓",
+                 "failed": "✗", "skipped": "−", "blocked": "⊘"}.get(status, "○")
+        indent = _depth(node, frozenset())
+        workers = [w for w in (node.get("worker_ids") or [])]
+        worker_html = ""
+        if workers:
+            tags = "".join(f'<span class="plan-worker">工蚁 {esc(w)}</span>' for w in workers)
+            worker_html = f'<span class="plan-workers">{tags}</span>'
+        summary = str(node.get("result_summary") or "").strip()
+        summary_html = (
+            f'<div class="plan-summary">{esc(summary[:200])}</div>' if summary else ""
+        )
+        err = str(node.get("error") or "").strip()
+        err_html = f'<div class="plan-error">{esc(err[:200])}</div>' if err else ""
+        title_attr = f' title="{esc(str(node.get("detail") or ""))}"' if node.get("detail") else ""
+        parts.append(
+            f'<li class="plan-item {_PLAN_GLYPH_CLASS.get(status, "plan-pending")}"'
+            f' style="margin-left:{indent * 16}px"{title_attr}>'
+            f'<span class="plan-glyph">{glyph}</span>'
+            f'<span class="plan-id">{esc(nid)}</span>'
+            f'<span class="plan-title">{esc(title)}</span>'
+            f'{worker_html}{summary_html}{err_html}'
+            f"</li>"
+        )
+    parts.append("</ul></div>")
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# 权限徽章（v1.4，路线图 §10）
+# ---------------------------------------------------------------------------
+
+def render_permissions(rows: list) -> str:
+    """渲染权限徽章列表。rows 来自 antnest_permissions.describe_grants()。"""
+    if not rows:
+        return ""
+    parts = ['<div class="perm-panel">']
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        granted = bool(row.get("granted"))
+        mark = "✓" if granted else "✗"
+        cls = "perm-on" if granted else "perm-off"
+        parts.append(
+            f'<div class="perm-row {cls}">'
+            f'<span class="perm-mark">{mark}</span>'
+            f'<span class="perm-label">{esc(str(row.get("label") or ""))}</span>'
+            f'<span class="perm-note">{esc(str(row.get("note") or ""))}</span>'
+            f"</div>"
+        )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# 事件时间线（v1.4，路线图 §5）
+# ---------------------------------------------------------------------------
+
+_EVENT_GLYPH = {
+    "TASK": "◆", "PLAN": "▤", "WORKER": "🐜", "TOOL": "⚙",
+    "PERMISSION": "🔒", "CHECKPOINT": "⎘", "LOOP": "↻",
+}
+
+
+def render_timeline(records: list) -> str:
+    """渲染事件时间线。records 是 EventRecord 列表（或等价的 dict 列表）。"""
+    if not records:
+        return ""
+    parts = ['<ol class="timeline">']
+    for rec in records:
+        if isinstance(rec, dict):
+            name = str(rec.get("event") or "")
+            ts = float(rec.get("ts") or 0)
+            wid = rec.get("worker_id")
+            data = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+        else:
+            name = str(getattr(rec, "event", "") or "")
+            ts = float(getattr(rec, "ts", 0) or 0)
+            wid = getattr(rec, "worker_id", None)
+            data = getattr(rec, "data", {}) or {}
+        category = name.split("_", 1)[0] if name else ""
+        glyph = _EVENT_GLYPH.get(category, "·")
+        import time as _t
+
+        stamp = _t.strftime("%H:%M:%S", _t.localtime(ts)) if ts else "--:--:--"
+        detail: list[str] = []
+        for key in ("tool", "status", "action", "title", "goal", "node", "duration_ms", "reason"):
+            val = data.get(key)
+            if val not in (None, "", []):
+                text = str(val)
+                detail.append(f"{key}={text[:80]}")
+        wid_html = f'<span class="tl-worker">#{esc(wid)}</span>' if wid is not None else ""
+        parts.append(
+            f'<li class="tl-item tl-{esc(category.lower())}">'
+            f'<span class="tl-time">{stamp}</span>'
+            f'<span class="tl-glyph">{glyph}</span>'
+            f'<span class="tl-event">{esc(name)}</span>{wid_html}'
+            f'<span class="tl-detail">{esc(" ".join(detail))}</span>'
+            f"</li>"
+        )
+    parts.append("</ol>")
+    return "".join(parts)
+
+
 def render_chat(chats: list) -> str:
     parts = []
     for item in chats:

@@ -21,6 +21,7 @@ import antnest_inventory
 import antnest_permissions
 import antnest_registry
 import antnest_events as _ev
+import antnest_plan
 import admin_utils
 import antnest_log
 _qlog = antnest_log.get_logger("queen")
@@ -29,6 +30,11 @@ _qlog = antnest_log.get_logger("queen")
 def _A():
     import AntNest as _m
     return _m
+
+
+def update_plan(goal: str = "", nodes: str = "[]") -> str:
+    """登记执行计划（v1.4 显式规划层）。本体在 antnest_plan。"""
+    return antnest_plan.update_plan(goal=goal, nodes=nodes)
 
 
 def get_queen_tools(compact_panic: bool = False) -> list:
@@ -151,6 +157,9 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
     # 写核心源码，或执行命中高危模式的命令，都必须先过权限引擎。
     # 旧实现是 _command_self_source_target + _self_modification_gate 两步，现在
     # 统一由 PermissionEngine.check_command 承担（危险模式表也已合并到一处）。
+    #
+    # 顺序很关键：**权限先于计划派生**。反过来的话，一个被拒绝的 spawn 也会
+    # 在计划里留下一个节点——但那件事根本没发生，计划会说谎。
     _dec = _A().PERMISSION_ENGINE.check_command(command, tool="spawn_clone")
     if _dec.allowed:
         pass
@@ -179,6 +188,18 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
         # 管理员模式下对每条危险命令阻塞式 input()，而 UI 的 _turn 跑在本进程
         # 线程里，用户没有任何界面能应答，会冻结整个 Agent。
         return _dec.to_tool_result()
+
+    # ====== 计划兜底：保证任何真正执行的工蚁都落在某个节点上 =====
+    # 放在权限闸门之后：被拒绝的 spawn 什么都没发生，不该在计划里留节点。
+    # LLM 显式调过 update_plan 就交给它自己管；否则自动开节点。
+    # 没有这一层，flash 类模型不按格式调工具时 Plan 面板会是空的。
+    try:
+        _plan_node = antnest_plan.ensure_node_for_spawn(
+            title=(label or command or "执行任务")[:80]
+        )
+    except Exception as _pe:  # 计划层永不影响执行
+        _plan_node = None
+        _qlog.debug(f"计划节点派生失败（忽略）：{_pe}")
 
     # ====== 任务状态管理 ======
     from task_manager import get_task_manager, TaskStatus
@@ -255,6 +276,13 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
             env["AN_CLONE_COMMAND"] = ""
         else:
             env["AN_CLONE_COMMAND"] = command
+
+        # 把 worker task_id 绑到计划节点，供归巢时反查推进状态
+        if _plan_node is not None:
+            try:
+                antnest_plan.current().bind_worker(task_id, _plan_node.id)
+            except Exception:
+                pass
 
         proc = subprocess.Popen(
             [sys.executable, clone_script],
@@ -365,6 +393,18 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                 result = json.dumps(d, ensure_ascii=False)
         except Exception:
             pass
+
+        # 计划节点推进：按 task_id 反查节点并标记完成/失败
+        if _plan_node is not None:
+            try:
+                _st = "ok"
+                try:
+                    _st = str(json.loads(result).get("status") or "ok")
+                except Exception:
+                    pass
+                antnest_plan.complete_node_for_spawn(task_id, _st, str(_st))
+            except Exception as _pe:
+                _qlog.debug(f"计划节点推进失败（忽略）：{_pe}")
 
         # ====== 验证工蚁：如果 verify=True，派验证工蚁确认结果 ======
         if verify and task.status == TaskStatus.DONE:

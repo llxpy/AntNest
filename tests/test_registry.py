@@ -97,12 +97,12 @@ class VisibilityTest(unittest.TestCase):
         self.assertNotIn("leave_memory_hints", normal)
         self.assertIn("leave_memory_hints", {s.name for s in reg.exposed_specs(compact_panic=True)})
 
-    def test_visibility_is_identical_to_v131_handwritten_list(self):
-        """回归：派生结果必须与 v1.3.1 的手写列表逐项相等。
+    def test_legacy_tools_keep_relative_order(self):
+        """v1.4 新增工具必须**追加**在末尾，不得插队。
 
-        v1.3.1 的 antnest_queen.get_queen_tools 常态返回这 11 个（MCP 关闭时）。
-        派生逻辑若无意改动工具可见性，会直接改变每回合发给 LLM 的 tools 数组，
-        进而改变模型行为——这类漂移很难在运行时察觉。
+        tools 数组的顺序影响模型注意力分布。v1.3.1 的 11 个工具相对顺序必须
+        保持不变，新增的（update_plan / mcp_*）只能追加——插队等于悄悄改变
+        模型行为，且不会有任何报错。
         """
         legacy = [
             "spawn_clone", "get_task_status", "view_file", "list_dir",
@@ -110,19 +110,22 @@ class VisibilityTest(unittest.TestCase):
             "register_tool", "list_tools", "get_tool_source",
         ]
         got = [s.name for s in reg.exposed_specs(mcp_on=False)]
+        kept = [n for n in got if n in legacy]
         self.assertEqual(
-            set(got), set(legacy),
-            f"常态可见集合变了：新增 {set(got) - set(legacy)}，消失 {set(legacy) - set(got)}",
+            kept, legacy,
+            "v1.3.1 的工具相对顺序被打乱了",
         )
 
-    def test_legacy_order_is_preserved_when_sorted_by_first_use(self):
-        """顺序不参与 LLM 语义，但保持与旧列表一致便于人工 diff。"""
-        legacy = [
-            "spawn_clone", "get_task_status", "view_file", "list_dir",
-            "grep_files", "write_file", "search_replace", "web_fetch",
-            "register_tool", "list_tools", "get_tool_source",
-        ]
-        self.assertEqual([s.name for s in reg.exposed_specs(mcp_on=False)], legacy)
+    def test_v14_additions_are_appended_not_inserted(self):
+        """显式钉住 v1.4 新增工具的位置。
+
+        MCP 关闭时 update_plan 追加在 v1.3.1 那 11 个之后；MCP 开启时
+        mcp_call / mcp_list_tools 追加在最后（v1.3.1 也是这个行为）。
+        """
+        got = [s.name for s in reg.exposed_specs(mcp_on=False)]
+        self.assertEqual(got[-1], "update_plan", "update_plan 应追加在末尾")
+        with_mcp = [s.name for s in reg.exposed_specs(mcp_on=True)]
+        self.assertEqual(with_mcp[-3:], ["update_plan", "mcp_call", "mcp_list_tools"])
 
     def test_registry_order_is_stable(self):
         first = [s.name for s in reg.exposed_specs(mcp_on=True)]

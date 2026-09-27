@@ -72,6 +72,7 @@ Source: "{#SourceDir}\antnest_inventory.py";     DestDir: "{app}"; Flags: ignore
 Source: "{#SourceDir}\antnest_permissions.py";   DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_registry.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_events.py";       DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_plan.py";         DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_log.py";          DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_errors.py";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_config_schema.py"; DestDir: "{app}"; Flags: ignoreversion

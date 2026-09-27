@@ -1,9 +1,9 @@
 /* ================================================================
-   AntNest UI · Redesigned stylesheet
+   AntNest UI 路 Redesigned stylesheet
    Design system: refined dark-first, glass morphism, purposeful depth
    ================================================================ */
 
-/* ── Color tokens ── */
+/* 鈹€鈹€ Color tokens 鈹€鈹€ */
 :root, [data-theme="dark"]{
   --bg-top:#080d18; --bg-bottom:#040810;
   --accent:#4CC9F0; --accent-dim:rgba(76,201,240,0.10);
@@ -74,7 +74,7 @@
   --shadow-card:0 2px 8px rgba(0,0,0,0.25), 0 0 0 1px var(--card-border);
 }
 
-/* ── Reset & base ── */
+/* 鈹€鈹€ Reset & base 鈹€鈹€ */
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%; user-select:text; -webkit-user-select:text}
 body{
@@ -90,14 +90,14 @@ body{
     linear-gradient(175deg, var(--bg-top), var(--bg-bottom));
 }
 
-/* ── Topbar ── */
+/* 鈹€鈹€ Topbar 鈹€鈹€ */
 .topbar{
   display:flex; align-items:center; gap:12px; padding:12px 22px;
   border-bottom:1px solid var(--card-border);
   background:var(--topbar-bg); backdrop-filter:blur(16px) saturate(1.4);
   -webkit-backdrop-filter:blur(16px) saturate(1.4);
   flex-shrink:0; position:relative; z-index:10;
-  /* frameless 窗口：顶栏空白为拖动区；交互元素单独标 no-drag（见下） */
+  /* frameless 绐楀彛锛氶《鏍忕┖鐧戒负鎷栧姩鍖猴紱浜や簰鍏冪礌鍗曠嫭鏍?no-drag锛堣涓嬶級 */
   -webkit-app-region:drag; app-region:drag;
 }
 .topbar button,
@@ -108,7 +108,7 @@ body{
   -webkit-app-region:no-drag; app-region:no-drag;
 }
 
-/* ── 自绘窗口控制按钮（frameless 模式）── */
+/* 鈹€鈹€ 鑷粯绐楀彛鎺у埗鎸夐挳锛坒rameless 妯″紡锛夆攢鈹€ */
 .win-ctrl{
   -webkit-app-region:no-drag; app-region:no-drag;
   display:flex; align-items:stretch; margin:0 -22px 0 6px; align-self:stretch;
@@ -147,7 +147,7 @@ body{
 }
 .spacer{flex:1}
 
-/* ── Status pill ── */
+/* 鈹€鈹€ Status pill 鈹€鈹€ */
 .pill{
   font-size:11px; padding:4px 12px; border-radius:999px; font-weight:600;
   white-space:nowrap; display:inline-flex; align-items:center; gap:5px;
@@ -160,7 +160,7 @@ body{
 .pill.run{color:var(--accent); border:1px solid rgba(76,201,240,0.30); background:rgba(76,201,240,0.08)}
 .pill.idle{color:var(--muted); border:1px solid var(--card-border); background:var(--surface)}
 
-/* ── Empty state ── */
+/* 鈹€鈹€ Empty state 鈹€鈹€ */
 .empty{color:var(--muted); font-size:13px; padding:14px 4px; text-align:center; line-height:1.7}
 
 /* ================================================================
@@ -171,7 +171,7 @@ body{
   padding:16px 20px; overflow:hidden; min-height:0;
 }
 
-/* ── Card system ── */
+/* 鈹€鈹€ Card system 鈹€鈹€ */
 .card{
   background:var(--card);
   border:1px solid var(--card-border);
@@ -206,7 +206,7 @@ body{
   padding:12px 8px; gap:6px; user-select:text; -webkit-user-select:text;
 }
 
-/* ── Chat bubbles ── */
+/* 鈹€鈹€ Chat bubbles 鈹€鈹€ */
 .bubble{
   max-width:86%; padding:12px 16px; border-radius:var(--radius-md);
   margin-bottom:4px; line-height:1.7; font-size:14px; word-break:break-word;
@@ -256,7 +256,7 @@ body{
 @keyframes bmPulse{0%,100%{opacity:.6}50%{opacity:1}}
 @media (prefers-reduced-motion: reduce){.bubble-meta .bm-dot{animation:none}}
 
-/* ── Avatars ── */
+/* 鈹€鈹€ Avatars 鈹€鈹€ */
 .avatar{
   width:32px; height:32px; border-radius:50%; flex-shrink:0;
   display:flex; align-items:center; justify-content:center;
@@ -275,7 +275,7 @@ body{
   border:1px solid var(--card-border); font-size:11px; font-weight:700;
 }
 
-/* ── Think block ── */
+/* 鈹€鈹€ Think block 鈹€鈹€ */
 .think-block{
   margin:0 0 10px; border-radius:10px;
   border:1px solid rgba(76,201,240,0.14);
@@ -301,7 +301,7 @@ body{
 }
 @media (prefers-reduced-motion: reduce){.think-title::before{animation:none; opacity:.7}}
 
-/* ── Agent status bar ── */
+/* 鈹€鈹€ Agent status bar 鈹€鈹€ */
 .agent-status{
   display:flex; align-items:center; gap:10px; padding:8px 14px;
   margin-bottom:8px; border-radius:var(--radius-sm);
@@ -318,7 +318,7 @@ body{
 .agent-status .status-text{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 @media (prefers-reduced-motion: reduce){.agent-status .pulse{animation:none; opacity:.7}}
 
-/* ── Chat input area ── */
+/* 鈹€鈹€ Chat input area 鈹€鈹€ */
 .chat-input-row{display:flex; gap:8px; margin-top:12px; flex-shrink:0; align-items:flex-end}
 .chat-input{
   flex:1; background:rgba(255,255,255,0.04);
@@ -339,7 +339,7 @@ body{
   background:rgba(255,255,255,0.05);
 }
 
-/* ── Skill select ── */
+/* 鈹€鈹€ Skill select 鈹€鈹€ */
 .skill-select{
   background:rgba(255,255,255,0.04); border:1px solid var(--card-border);
   border-radius:var(--radius-md); padding:10px 12px; color:var(--text);
@@ -348,7 +348,7 @@ body{
 }
 .skill-select:focus{border-color:rgba(76,201,240,0.45)}
 
-/* ── Input wrapper ── */
+/* 鈹€鈹€ Input wrapper 鈹€鈹€ */
 .chat-input-wrap{flex:1; display:flex; flex-direction:column; gap:6px; position:relative}
 .image-preview-row{display:flex; gap:8px; flex-wrap:wrap; padding:0 2px}
 .image-preview{
@@ -393,11 +393,11 @@ body{
 }
 .monitor-col .card.log-card .log{flex:1; overflow-y:auto; overflow-x:hidden}
 
-/* ── Chat header ── */
+/* 鈹€鈹€ Chat header 鈹€鈹€ */
 .chat-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px}
 .chat-head h2{margin:0 !important}
 
-/* ── Stop button ── */
+/* 鈹€鈹€ Stop button 鈹€鈹€ */
 .btn.stop{
   border-color:rgba(255,107,107,0.45); color:var(--warn);
   background:rgba(255,107,107,0.06); flex-shrink:0;
@@ -405,7 +405,7 @@ body{
 .btn.stop:hover:not(:disabled){background:rgba(255,107,107,0.14); border-color:rgba(255,107,107,0.60)}
 .btn.stop:disabled{opacity:0.30; cursor:not-allowed}
 
-/* ── Subtask cards ── */
+/* 鈹€鈹€ Subtask cards 鈹€鈹€ */
 .subtask{
   display:flex; align-items:flex-start; gap:12px; padding:12px;
   border-radius:var(--radius-md); border:1px solid var(--card-border);
@@ -424,7 +424,7 @@ body{
 .subtask .title{font-weight:600; font-size:13px}
 .subtask .worker{font-size:12px; color:var(--muted); margin-top:4px}
 
-/* ── Worker cards ── */
+/* 鈹€鈹€ Worker cards 鈹€鈹€ */
 .worker-card{
   padding:12px; border-radius:var(--radius-md);
   border:1px solid var(--card-border); margin-bottom:8px;
@@ -628,7 +628,7 @@ body{
 .pw-eye:hover{color:var(--text); background:rgba(255,255,255,0.07)}
 .pw-eye.on{color:var(--accent)}
 
-/* ── 服务商预设 / 路径 / MCP 清单 ── */
+/* 鈹€鈹€ 鏈嶅姟鍟嗛璁?/ 璺緞 / MCP 娓呭崟 鈹€鈹€ */
 .preset-row{display:flex; flex-wrap:wrap; gap:8px}
 .chip{
   border:1px solid var(--card-border); background:rgba(255,255,255,0.03);
@@ -658,7 +658,7 @@ body{
 .mcp-note{font-size:12px; color:var(--muted); line-height:1.6}
 .empty-art{display:block; margin:0 auto 8px; opacity:0.55; color:var(--accent)}
 
-/* ── Composer：一体化输入卡（textarea 无边框 + 底部工具条）── */
+/* 鈹€鈹€ Composer锛氫竴浣撳寲杈撳叆鍗★紙textarea 鏃犺竟妗?+ 搴曢儴宸ュ叿鏉★級鈹€鈹€ */
 .chat-input-row{margin-top:10px; display:block; flex:none}
 .composer{
   border:1px solid var(--card-border); border-radius:14px;
@@ -717,7 +717,7 @@ body{
 .composer-send:active{transform:scale(0.94)}
 .composer-send svg{width:16px; height:16px}
 
-/* ── Toggle switch ── */
+/* 鈹€鈹€ Toggle switch 鈹€鈹€ */
 .toggle-row{
   display:flex; align-items:center; justify-content:space-between; gap:14px;
   padding:12px 14px; border-radius:var(--radius-md);
@@ -746,7 +746,7 @@ body{
   box-shadow:0 0 8px rgba(76,201,240,0.35);
 }
 
-/* ── Theme buttons ── */
+/* 鈹€鈹€ Theme buttons 鈹€鈹€ */
 .theme-row{display:flex; gap:10px; flex-wrap:wrap}
 .theme-btn{
   display:flex; align-items:center; gap:10px; cursor:pointer;
@@ -768,7 +768,7 @@ body{
 }
 .theme-btn.active .sw{transform:scale(1.15); border-color:var(--accent)}
 
-/* ── Settings footer ── */
+/* 鈹€鈹€ Settings footer 鈹€鈹€ */
 .settings-footer{
   display:flex; align-items:center; justify-content:flex-end; gap:12px; flex-shrink:0;
   padding:16px 28px 20px; border-top:1px solid var(--card-border);
@@ -784,7 +784,7 @@ body{
 }
 .btn.primary:active{transform:scale(0.97)}
 
-/* ── Modal close button ── */
+/* 鈹€鈹€ Modal close button 鈹€鈹€ */
 .modal-close{
   width:32px; height:32px; display:flex; align-items:center; justify-content:center;
   border-radius:var(--radius-sm); border:1px solid var(--card-border);
@@ -839,7 +839,7 @@ body{
 .verify-hint.ok{color:var(--success)}
 .verify-hint.bad{color:var(--warn)}
 
-/* ── Sessions modal ── */
+/* 鈹€鈹€ Sessions modal 鈹€鈹€ */
 .sessions-card{width:620px}
 .sessions-toolbar{display:flex; align-items:center; gap:10px; margin-bottom:12px}
 .sessions-list{max-height:52vh; overflow-y:auto; display:flex; flex-direction:column; gap:6px}
@@ -890,12 +890,11 @@ body{
    ================================================================ */
 #image-upload-btn svg{width:16px; height:16px; pointer-events:none}
 
-/* Thinking hint (hidden — moved to inline bubble) */
+/* Thinking hint (hidden 鈥?moved to inline bubble) */
 .thinking-hint{display:none !important}
 
 /* ================================================================
-   Update banner（居中弹窗：与主题一致，字体清晰）
-   ================================================================ */
+   Update banner锛堝眳涓脊绐楋細涓庝富棰樹竴鑷达紝瀛椾綋娓呮櫚锛?   ================================================================ */
 .update-banner{
   position:fixed; inset:0; z-index:120; display:none;
   align-items:center; justify-content:center; padding:24px;
@@ -936,7 +935,7 @@ body{
 .update-banner .ub-close{background:transparent; color:var(--muted)}
 .update-banner .ub-close:hover{color:var(--text)}
 
-/* ── 蚁后立绘展示区（设置抽屉顶部 / 启动页空白位） ── */
+/* 鈹€鈹€ 铓佸悗绔嬬粯灞曠ず鍖猴紙璁剧疆鎶藉眽椤堕儴 / 鍚姩椤电┖鐧戒綅锛?鈹€鈹€ */
 .queen-portrait{
   display:flex; align-items:flex-end; justify-content:center;
   min-height:200px; max-height:240px;
@@ -953,7 +952,7 @@ body{
 }
 @media (prefers-reduced-motion: reduce){.queen-portrait img{filter:none}}
 
-/* ── 右下角版本徽标 ── */
+/* 鈹€鈹€ 鍙充笅瑙掔増鏈窘鏍?鈹€鈹€ */
 .version-badge{
   position:fixed; right:14px; bottom:12px; z-index:40;
   font-size:12px; font-variant-numeric:tabular-nums; color:var(--muted);
@@ -1067,10 +1066,9 @@ body{
 [data-theme="light"] .modal.settings-modal{background:rgba(15,23,42,.22);}
 
 /* ================================================================
-   v1.3.0 UI 追加：全局立绘 + 会话卡片 + Skills 抽屉 + 自定义主题
-   ================================================================ */
+   v1.3.0 UI 杩藉姞锛氬叏灞€绔嬬粯 + 浼氳瘽鍗＄墖 + Skills 鎶藉眽 + 鑷畾涔変富棰?   ================================================================ */
 
-/* ── 全局立绘（透明底，固定左侧，不参与交互） ── */
+/* 鈹€鈹€ 鍏ㄥ眬绔嬬粯锛堥€忔槑搴曪紝鍥哄畾宸︿晶锛屼笉鍙備笌浜や簰锛?鈹€鈹€ */
 .queen-stand{
   position:fixed; left:8px; bottom:0; top:auto;
   width:180px; height:46vh; max-height:420px;
@@ -1089,7 +1087,7 @@ body{
 @media (prefers-reduced-motion: reduce){.queen-stand img{filter:none}}
 @media (max-width:900px){.queen-stand{width:120px; opacity:.85}}
 
-/* ── 对话记录：卡片网格 ── */
+/* 鈹€鈹€ 瀵硅瘽璁板綍锛氬崱鐗囩綉鏍?鈹€鈹€ */
 .sessions-grid{
   display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
   gap:12px; max-height:52vh; overflow-y:auto; padding:4px;
@@ -1120,7 +1118,7 @@ body{
 .session-actions .btn{flex:1; padding:7px 6px; font-size:12px}
 .session-del{width:auto; flex:0 0 auto}
 
-/* ── Skills 抽屉（与设置抽屉同款，主题一致） ── */
+/* 鈹€鈹€ Skills 鎶藉眽锛堜笌璁剧疆鎶藉眽鍚屾锛屼富棰樹竴鑷达級 鈹€鈹€ */
 .skills-drawer .settings-card{width:min(560px,92vw)}
 .skills-drawer .skills-list{display:flex; flex-direction:column; gap:8px; overflow-y:auto}
 .skills-drawer .skill-item{
@@ -1137,7 +1135,7 @@ body{
 .skills-drawer .skill-desc{font-size:13px; color:var(--text); line-height:1.5}
 .skills-drawer .empty{text-align:center; padding:30px 10px}
 
-/* ── 子任务 / 工蚁 展开模态（卡片式排列） ── */
+/* 鈹€鈹€ 瀛愪换鍔?/ 宸ヨ殎 灞曞紑妯℃€侊紙鍗＄墖寮忔帓鍒楋級 鈹€鈹€ */
 .modal.ops-modal .modal-card{width:760px; max-width:94vw}
 .ops-grid{
   display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
@@ -1153,7 +1151,7 @@ body{
 .ops-card .ops-meta{font-size:11px; color:var(--muted); line-height:1.5}
 .ops-card .pill{align-self:flex-start}
 
-/* ── 自定义主题：用户色变量 ── */
+/* 鈹€鈹€ 鑷畾涔変富棰橈細鐢ㄦ埛鑹插彉閲?鈹€鈹€ */
 [data-theme="custom"]{
   --accent: var(--user-accent, #4CC9F0);
   --accent-dim: color-mix(in srgb, var(--user-accent, #4CC9F0) 10%, transparent);
@@ -1161,7 +1159,7 @@ body{
 }
 
 
-/* ---- 立绘作为聊天区背景：铺满 chat 卡底部，对话气泡覆盖其上 ---- */
+/* ---- 绔嬬粯浣滀负鑱婂ぉ鍖鸿儗鏅細閾烘弧 chat 鍗″簳閮紝瀵硅瘽姘旀场瑕嗙洊鍏朵笂 ---- */
 .card.chat{position:relative; overflow:hidden}
 .card.chat .queen-stand{
   position:absolute; left:50%; bottom:0; transform:translateX(-50%);
@@ -1184,7 +1182,7 @@ body{
 @media (prefers-reduced-motion: reduce){.card.chat .queen-stand img{filter:none}}
 
 
-/* ---- 启动立绘 splash：打开时出现一次，自动淡出 ---- */
+/* ---- 鍚姩绔嬬粯 splash锛氭墦寮€鏃跺嚭鐜颁竴娆★紝鑷姩娣″嚭 ---- */
 .app-splash{
   position:fixed; inset:0; z-index:9999;
   display:flex; align-items:center; justify-content:center;
@@ -1220,26 +1218,25 @@ body{
   .splash-portrait{ animation:none; }
   .app-splash{ transition:none; }
 }
-/* 移除旧的聊天卡内立绘背景规则（已改为 splash） */
+/* 绉婚櫎鏃х殑鑱婂ぉ鍗″唴绔嬬粯鑳屾櫙瑙勫垯锛堝凡鏀逛负 splash锛?*/
 .card.chat .queen-stand{ display:none; }
 
 
 /* ================================================================
-   v1.3.0 UI 修复：对话卡完整显示与滚动 + 状态卡内滚动
-   ================================================================ */
+   v1.3.0 UI 淇锛氬璇濆崱瀹屾暣鏄剧ず涓庢粴鍔?+ 鐘舵€佸崱鍐呮粴鍔?   ================================================================ */
 
-/* 对话卡片完整：flex 列中禁止气泡被压缩，容器负责滚动 */
+/* 瀵硅瘽鍗＄墖瀹屾暣锛歠lex 鍒椾腑绂佹姘旀场琚帇缂╋紝瀹瑰櫒璐熻矗婊氬姩 */
 .chat-msgs > .bubble{flex-shrink:0}
 .chat-msgs > .bubble.user{max-width:86%}
 .chat-msgs > .bubble.queen{max-width:86%}
 
-/* 正文自适应：卡片随文本长度增长，由聊天容器整体滚动；思维块仍在小卡片内滚动 */
+/* 姝ｆ枃鑷€傚簲锛氬崱鐗囬殢鏂囨湰闀垮害澧為暱锛岀敱鑱婂ぉ瀹瑰櫒鏁翠綋婊氬姩锛涙€濈淮鍧椾粛鍦ㄥ皬鍗＄墖鍐呮粴鍔?*/
 .bubble-text{max-height:none; overflow:visible;}
 
-/* 思维块：提高高度上限，长思考可内部滚动（不再 220px 截断） */
+/* 鎬濈淮鍧楋細鎻愰珮楂樺害涓婇檺锛岄暱鎬濊€冨彲鍐呴儴婊氬姩锛堜笉鍐?220px 鎴柇锛?*/
 .think-body{max-height:36vh}
 
-/* 右下状态卡：全套样式（此前缺失导致溢出） */
+/* 鍙充笅鐘舵€佸崱锛氬叏濂楁牱寮忥紙姝ゅ墠缂哄け瀵艰嚧婧㈠嚭锛?*/
 .status-card{display:flex; flex-direction:column; overflow:hidden}
 .status-card .status-summary{
   display:flex; flex-direction:column; gap:8px;
@@ -1279,13 +1276,13 @@ body{
 .status-card .sw-meta{flex:1; min-width:0; word-break:break-word; line-height:1.5}
 .status-card .status-worker .pill{flex-shrink:0}
 
-/* 状态卡顶栏按钮行（重连/休眠）保持可点 */
+/* 鐘舵€佸崱椤舵爮鎸夐挳琛岋紙閲嶈繛/浼戠湢锛変繚鎸佸彲鐐?*/
 .status-card .toolbar{flex-shrink:0; margin:8px 0 0}
 /* ================================================================
-   v1.3.0 修复批次：展开模态防溢出 + 会话只读查看 + 渲染数量提示
+   v1.3.0 淇鎵规锛氬睍寮€妯℃€侀槻婧㈠嚭 + 浼氳瘽鍙鏌ョ湅 + 娓叉煋鏁伴噺鎻愮ず
    ================================================================ */
 
-/* ── 展开模态与面板卡片：长路径/长文本断行，杜绝右侧溢出 ── */
+/* 鈹€鈹€ 灞曞紑妯℃€佷笌闈㈡澘鍗＄墖锛氶暱璺緞/闀挎枃鏈柇琛岋紝鏉滅粷鍙充晶婧㈠嚭 鈹€鈹€ */
 .ops-card,
 .subtask,
 .worker-card{
@@ -1318,7 +1315,7 @@ body{
   font-size:11px; color:var(--muted); text-align:center; padding:6px 0 2px;
 }
 
-/* ── 会话内容只读查看模态 ── */
+/* 鈹€鈹€ 浼氳瘽鍐呭鍙鏌ョ湅妯℃€?鈹€鈹€ */
 .session-view-card{width:720px; max-width:94vw}
 .session-view-body{
   max-height:62vh; overflow-y:auto;
@@ -1344,7 +1341,7 @@ body{
   line-height:1.7; word-break:break-word;
 }
 .sv-item .think-block{margin-bottom:6px}
-/* ===== 右下角迷你常驻窗 ===== */
+/* ===== 鍙充笅瑙掕糠浣犲父椹荤獥 ===== */
 .mini-panel{
   position:fixed; right:16px; bottom:16px; z-index:9998;
   width:300px; border-radius:14px; overflow:hidden;
@@ -1376,7 +1373,7 @@ body{
 }
 .mini-input-row input:focus{border-color:var(--accent)}
 .mini-restore{margin:0 12px 12px; width:calc(100% - 24px)}
-/* 模型快速切换下拉（与 skill-select 同款） */
+/* 妯″瀷蹇€熷垏鎹笅鎷夛紙涓?skill-select 鍚屾锛?*/
 .model-select{
   background:rgba(255,255,255,0.04); border:1px solid var(--card-border);
   border-radius:var(--radius-md); padding:10px 12px; color:var(--text);
@@ -1385,7 +1382,7 @@ body{
   transition:border-color 0.2s;
 }
 .model-select:focus{border-color:rgba(76,201,240,0.45)}
-/* ==== v1.3.0：工作空间侧栏 ==== */
+/* ==== v1.3.0锛氬伐浣滅┖闂翠晶鏍?==== */
 .workspace-col{
   display:flex; flex-direction:column; gap:10px;
   width:180px; min-width:180px; flex-shrink:0;
@@ -1414,7 +1411,7 @@ body{
 .ws-del:hover{color:var(--warn)}
 .ws-add{width:100%; font-size:12px; padding:8px}
 /* ================================================================
-   v1.3.0b — 最终布局：.main flex（工作空间左窄条不挤压）+ 工作空间美化
+   v1.3.0b 鈥?鏈€缁堝竷灞€锛?main flex锛堝伐浣滅┖闂村乏绐勬潯涓嶆尋鍘嬶級+ 宸ヤ綔绌洪棿缇庡寲
    ================================================================ */
 .main{
   display:flex; flex-direction:row; align-items:stretch;
@@ -1492,8 +1489,7 @@ body{
 }
 [data-theme="light"] .workspace-col{background:linear-gradient(180deg, rgba(15,23,42,.03), transparent)}
 /* ================================================================
-   工作空间·可折叠（与 app.js 折叠函数对齐）
-   ================================================================ */
+   宸ヤ綔绌洪棿路鍙姌鍙狅紙涓?app.js 鎶樺彔鍑芥暟瀵归綈锛?   ================================================================ */
 .ws-head{
   display:flex; align-items:center; justify-content:space-between; gap:8px;
 }
@@ -1504,7 +1500,7 @@ body{
   font-size:14px; line-height:1; cursor:pointer; transition:all .15s;
 }
 .ws-toggle-btn:hover{color:var(--accent); border-color:var(--accent); background:var(--accent-dim)}
-/* 折叠竖条：默认隐藏；折叠状态下显示并居中 */
+/* 鎶樺彔绔栨潯锛氶粯璁ら殣钘忥紱鎶樺彔鐘舵€佷笅鏄剧ず骞跺眳涓?*/
 .ws-collapsed-bar{
   display:none; writing-mode:vertical-rl; text-orientation:mixed;
   flex:1; cursor:pointer; user-select:none; color:var(--muted);
@@ -1512,7 +1508,7 @@ body{
   margin:0 auto; align-self:center;
 }
 .ws-collapsed-bar:hover{color:var(--accent)}
-/* 折叠态：列收窄为竖条；隐藏列表/提示/添加按钮/头部文字 */
+/* 鎶樺彔鎬侊細鍒楁敹绐勪负绔栨潯锛涢殣钘忓垪琛?鎻愮ず/娣诲姞鎸夐挳/澶撮儴鏂囧瓧 */
 .workspace-col.ws-collapsed{
   flex:0 0 40px; min-width:40px; max-width:40px;
   padding:12px 4px; overflow:hidden;
@@ -1529,13 +1525,12 @@ body{
 }
 
 /* ================================================================
-   v1.3.0 UI 统一化（幂等追加）
-   ================================================================ */
-/* ---- 文本输入框 scrollbar 美化 ---- */
+   v1.3.0 UI 缁熶竴鍖栵紙骞傜瓑杩藉姞锛?   ================================================================ */
+/* ---- 鏂囨湰杈撳叆妗?scrollbar 缇庡寲 ---- */
 .chat-input::-webkit-scrollbar{width:4px}
 .chat-input::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35); border-radius:2px}
 
-/* ---- 下拉框（Skill / 模型）美化：统一样式 + 箭头 ---- */
+/* ---- 涓嬫媺妗嗭紙Skill / 妯″瀷锛夌編鍖栵細缁熶竴鏍峰紡 + 绠ご ---- */
 .skill-select, .model-select{
   appearance:none; -webkit-appearance:none; -moz-appearance:none;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23888888'/></svg>");
@@ -1546,7 +1541,7 @@ body{
 .skill-select:hover, .model-select:hover{border-color:var(--accent); background-color:var(--surface-hover)}
 .skill-select:focus, .model-select:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim); outline:none}
 
-/* ---- 主题统一：黑/白共用输入/下拉 token ---- */
+/* ---- 涓婚缁熶竴锛氶粦/鐧藉叡鐢ㄨ緭鍏?涓嬫媺 token ---- */
 [data-theme="light"]{
   --input-bg:#f8fafc; --input-border:rgba(15,23,42,.16);
 }
@@ -1563,7 +1558,7 @@ body{
 [data-theme="light"] .skill-select,
 [data-theme="light"] .model-select{color:#1a2332}
 
-/* ---- 工作空间文件预览面板 ---- */
+/* ---- 宸ヤ綔绌洪棿鏂囦欢棰勮闈㈡澘 ---- */
 .ws-preview{
   display:none; margin-top:10px; padding-top:10px;
   border-top:1px solid var(--card-border); font-size:12px;
@@ -1587,40 +1582,40 @@ body{
 .ws-pfile.dir::before{border-radius:50%; opacity:1}
 .ws-preview-enter{width:100%; margin-top:8px; font-size:12px}
 /* ================================================================
-   v1.3.0 — UI 修复：输入行高度统一 + 白色主题优化
+   v1.3.0 鈥?UI 淇锛氳緭鍏ヨ楂樺害缁熶竴 + 鐧借壊涓婚浼樺寲
    ================================================================ */
 
-/* ---- 输入行：三个控件等高对齐（38px）---- */
+/* ---- 杈撳叆琛岋細涓変釜鎺т欢绛夐珮瀵归綈锛?8px锛?--- */
 .chat-input-row{
-  align-items:center;            /* 原 flex-end，改为 center 让下拉/输入视觉对齐 */
+  align-items:center;            /* 鍘?flex-end锛屾敼涓?center 璁╀笅鎷?杈撳叆瑙嗚瀵归綈 */
 }
 .chat-input-row .skill-select,
 .chat-input-row .model-select{
   height:38px; min-height:38px; max-height:38px;
-  padding:0 30px 0 12px;         /* 垂直居中：去掉上下 padding，用行高 */
-  line-height:36px;              /* 38 - 2 边框 */
+  padding:0 30px 0 12px;         /* 鍨傜洿灞呬腑锛氬幓鎺変笂涓?padding锛岀敤琛岄珮 */
+  line-height:36px;              /* 38 - 2 杈规 */
   box-sizing:border-box;
   font-size:13px;
 }
-/* 发送按钮同高 */
+/* 鍙戦€佹寜閽悓楂?*/
 .chat-input-row .btn{
   height:38px; min-height:38px;
   display:inline-flex; align-items:center; justify-content:center;
   box-sizing:border-box;
 }
-/* 文字输入时 textarea 增高后仍与下拉顶部对齐（flex 容器内，textarea 顶对齐） */
+/* 鏂囧瓧杈撳叆鏃?textarea 澧為珮鍚庝粛涓庝笅鎷夐《閮ㄥ榻愶紙flex 瀹瑰櫒鍐咃紝textarea 椤跺榻愶級 */
 .chat-input-row{width:100%}
 
-/* ---- 白色主题优化：纯白卡片 + 清晰分层 + 强对比 ---- */
+/* ---- 鐧借壊涓婚浼樺寲锛氱函鐧藉崱鐗?+ 娓呮櫚鍒嗗眰 + 寮哄姣?---- */
 [data-theme="light"]{
-  --bg-top:#eef2f7; --bg-bottom:#e6ebf2;         /* 页面更干净 */
+  --bg-top:#eef2f7; --bg-bottom:#e6ebf2;         /* 椤甸潰鏇村共鍑€ */
   --accent:#1a73e8; --accent-dim:rgba(26,115,232,0.10);
   --accent-glow:rgba(26,115,232,0.18);
-  --card:#ffffff; --card-border:rgba(15,23,42,0.10);   /* 纯白卡片 + 更实边框 */
+  --card:#ffffff; --card-border:rgba(15,23,42,0.10);   /* 绾櫧鍗＄墖 + 鏇村疄杈规 */
   --card-hover-border:rgba(26,115,232,0.30);
-  --text:#10213d; --muted:#4a5b72;               /* 正文更实、次要对比更高 */
+  --text:#10213d; --muted:#4a5b72;               /* 姝ｆ枃鏇村疄銆佹瑕佸姣旀洿楂?*/
   --success:#16a34a; --warn:#dc2626;
-  --surface:#f4f7fb; --surface-hover:#ebf1f8;    /* 输入区白底浅灰 */
+  --surface:#f4f7fb; --surface-hover:#ebf1f8;    /* 杈撳叆鍖虹櫧搴曟祬鐏?*/
   --topbar-bg:rgba(255,255,255,0.92);
   --agent-glow:rgba(26,115,232,0.06);
   --bubble-queen:#f7f9fc; --bubble-user:rgba(26,115,232,0.10);
@@ -1628,11 +1623,11 @@ body{
   --shadow-md:0 6px 18px rgba(16,33,61,0.10);
   --shadow-lg:0 18px 46px rgba(16,33,61,0.14);
   --shadow-card:0 1px 2px rgba(16,33,61,0.04), 0 0 0 1px var(--card-border);
-  /* 输入控件白底 */
+  /* 杈撳叆鎺т欢鐧藉簳 */
   --input-bg:#ffffff; --input-border:rgba(16,33,61,0.16);
   --select-bg:#ffffff; --card-overlay:rgba(16,33,61,0.05);
 }
-/* 白主题下输入控件统一 */
+/* 鐧戒富棰樹笅杈撳叆鎺т欢缁熶竴 */
 [data-theme="light"] .chat-input-row .skill-select,
 [data-theme="light"] .chat-input-row .model-select,
 [data-theme="light"] .chat-input-row .chat-input,
@@ -1654,13 +1649,13 @@ body{
   border-color:var(--accent);
   box-shadow:0 0 0 3px rgba(26,115,232,0.14);
 }
-/* 白主题卡片层次 */
+/* 鐧戒富棰樺崱鐗囧眰娆?*/
 [data-theme="light"] .card{
   background:#ffffff;
   box-shadow:0 1px 3px rgba(16,33,61,0.06), 0 8px 24px rgba(16,33,61,0.06);
 }
 [data-theme="light"] .card:hover{border-color:rgba(26,115,232,0.22)}
-/* 白主题气泡 */
+/* 鐧戒富棰樻皵娉?*/
 [data-theme="light"] .bubble.queen{
   background:#ffffff;
   border-color:rgba(16,33,61,0.10);
@@ -1669,18 +1664,17 @@ body{
   background:rgba(26,115,232,0.10);
   border-color:rgba(26,115,232,0.22);
 }
-/* 白主题 think 块 */
+/* 鐧戒富棰?think 鍧?*/
 [data-theme="light"] .think-block{
   background:#f7f9fc; border-color:rgba(26,115,232,0.16);
 }
-/* 白主题下拉箭头颜色 */
+/* 鐧戒富棰樹笅鎷夌澶撮鑹?*/
 [data-theme="light"] .skill-select,
 [data-theme="light"] .model-select{
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%234a5b72'/></svg>");
 }
 /* ================================================================
-   v1.3.0 — 输入行水平对齐（最终覆盖）：select/textarea/btn 同高 38、同一水平面
-   ================================================================ */
+   v1.3.0 鈥?杈撳叆琛屾按骞冲榻愶紙鏈€缁堣鐩栵級锛歴elect/textarea/btn 鍚岄珮 38銆佸悓涓€姘村钩闈?   ================================================================ */
 .chat-input-row{
   display:flex; align-items:center; gap:8px; flex-wrap:nowrap;
 }
@@ -1694,7 +1688,7 @@ body{
   margin:0;
   vertical-align:middle;
 }
-/* 文本与图标按钮所在的包裹列：不锁定高度，允许 textarea 增高溢出 */
+/* 鏂囨湰涓庡浘鏍囨寜閽墍鍦ㄧ殑鍖呰９鍒楋細涓嶉攣瀹氶珮搴︼紝鍏佽 textarea 澧為珮婧㈠嚭 */
 .chat-input-row .chat-input-wrap{
   flex:1 1 auto; min-width:0;
   display:flex; flex-direction:column; justify-content:center;
@@ -1709,10 +1703,10 @@ body{
 }
 
 /* ================================================================
-   分发可视化 + 拖放 + 入场动效
+   鍒嗗彂鍙鍖?+ 鎷栨斁 + 鍏ュ満鍔ㄦ晥
    ================================================================ */
 
-/* ── 系统事件条（工蚁派发 / 完工 / 打回）── */
+/* 鈹€鈹€ 绯荤粺浜嬩欢鏉★紙宸ヨ殎娲惧彂 / 瀹屽伐 / 鎵撳洖锛夆攢鈹€ */
 .bubble.sys{
   align-self:center; max-width:80%; padding:0;
   background:transparent; border:none; box-shadow:none;
@@ -1729,9 +1723,9 @@ body{
 @keyframes sysIn{from{opacity:0; transform:translateY(4px) scale(0.96)} to{opacity:1; transform:none}}
 @media (prefers-reduced-motion: reduce){.bubble.sys{animation:none}}
 
-/* ── 拖放覆盖层（dragenter 时 .chat-col 加 drag-over）── */
+/* 鈹€鈹€ 鎷栨斁瑕嗙洊灞傦紙dragenter 鏃?.chat-col 鍔?drag-over锛夆攢鈹€ */
 .chat-col.drag-over::after{
-  content:"松开以添加附件";
+  content:"鏉惧紑浠ユ坊鍔犻檮浠?;
   position:absolute; inset:6px; z-index:30;
   border:2px dashed rgba(76,201,240,0.55);
   border-radius:var(--radius-lg);
@@ -1742,16 +1736,15 @@ body{
   pointer-events:none;
 }
 
-/* ── 工蚁卡 / 子任务入场动效（面板局部刷新时新卡浮现）── */
+/* 鈹€鈹€ 宸ヨ殎鍗?/ 瀛愪换鍔″叆鍦哄姩鏁堬紙闈㈡澘灞€閮ㄥ埛鏂版椂鏂板崱娴幇锛夆攢鈹€ */
 .worker-card, .subtask{animation:cardIn 0.22s ease-out}
 @keyframes cardIn{from{opacity:0; transform:translateY(5px)} to{opacity:1; transform:none}}
 @media (prefers-reduced-motion: reduce){.worker-card,.subtask{animation:none}}
 
 /* ================================================================
-   工具化：数据密度与专业呈现
-   ================================================================ */
+   宸ュ叿鍖栵細鏁版嵁瀵嗗害涓庝笓涓氬憟鐜?   ================================================================ */
 
-/* ── 工蚁卡：紧凑 + mono 任务行 + 实时耗时 ── */
+/* 鈹€鈹€ 宸ヨ殎鍗★細绱у噾 + mono 浠诲姟琛?+ 瀹炴椂鑰楁椂 鈹€鈹€ */
 .worker-card{padding:10px 12px}
 .worker-card .top{gap:8px; margin-bottom:3px}
 .worker-card .meta.task{
@@ -1775,7 +1768,7 @@ body{
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
-/* ── 子任务：耗时 + mono 执行行 ── */
+/* 鈹€鈹€ 瀛愪换鍔★細鑰楁椂 + mono 鎵ц琛?鈹€鈹€ */
 .subtask .top{display:flex; align-items:center; gap:8px}
 .subtask .top .w-dur{margin-left:auto}
 .subtask .meta.msg{
@@ -1783,11 +1776,11 @@ body{
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
-/* ── 日志：mono + 紧凑 ── */
+/* 鈹€鈹€ 鏃ュ織锛歮ono + 绱у噾 鈹€鈹€ */
 .log-line{padding:4px 10px; font-size:12.5px; gap:8px}
 .log-body{font-family:ui-monospace,Consolas,monospace; font-size:12px}
 
-/* ── 气泡复制按钮 ── */
+/* 鈹€鈹€ 姘旀场澶嶅埗鎸夐挳 鈹€鈹€ */
 .bubble{position:relative}
 .msg-copy{
   position:absolute; top:6px; right:8px; width:24px; height:24px; padding:0;
@@ -1801,8 +1794,7 @@ body{
 .msg-copy.copied{color:var(--success); opacity:1}
 
 /* ================================================================
-   Composer 最终覆盖（必须位于所有 .chat-input-row / 主题规则之后）
-   ================================================================ */
+   Composer 鏈€缁堣鐩栵紙蹇呴』浣嶄簬鎵€鏈?.chat-input-row / 涓婚瑙勫垯涔嬪悗锛?   ================================================================ */
 .chat-input-row{
   display:block; margin-top:10px; flex:none; align-items:stretch; gap:0;
 }
@@ -1851,7 +1843,7 @@ body{
   color:var(--text); background-color:rgba(255,255,255,0.05);
   border:none; box-shadow:none;
 }
-/* 浅色主题：composer 内下拉保持无边框透明（压制白底规则） */
+/* 娴呰壊涓婚锛歝omposer 鍐呬笅鎷変繚鎸佹棤杈规閫忔槑锛堝帇鍒剁櫧搴曡鍒欙級 */
 [data-theme="light"] .chat-input-row .composer-bar .skill-select,
 [data-theme="light"] .chat-input-row .composer-bar .model-select{
   background-color:transparent; border:none; box-shadow:none; color:var(--muted);
@@ -1874,3 +1866,49 @@ body{
 .composer-send:hover{filter:brightness(1.1); box-shadow:0 3px 14px rgba(76,201,240,0.45); transform:translateY(-1px)}
 .composer-send:active{transform:scale(0.94)}
 .composer-send svg{width:16px; height:16px}
+
+/* ==================== v1.4 - Plan DAG / 权限徽章 / 事件时间线 ==================== */
+.plan-panel{margin:0 0 8px; padding:8px 10px; border-radius:8px;
+  background:var(--panel-bg,rgba(255,255,255,0.03)); border:1px solid var(--border,rgba(255,255,255,0.08))}
+.plan-goal{font-size:12.5px; font-weight:600; color:var(--fg,inherit); margin-bottom:6px; overflow-wrap:anywhere}
+.plan-bar{position:relative; height:4px; border-radius:2px; margin-bottom:8px;
+  background:var(--border,rgba(255,255,255,0.08))}
+.plan-bar-fill{height:100%; border-radius:2px; background:var(--accent,#4cc9f0); transition:width .25s ease}
+.plan-pct{position:absolute; right:0; top:-16px; font-size:10.5px; color:var(--muted,#8b93a7)}
+.plan-list{list-style:none; margin:0; padding:0}
+.plan-item{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; padding:3px 0;
+  font-size:12px; line-height:1.5; overflow-wrap:anywhere}
+.plan-glyph{flex:0 0 auto; width:1em; text-align:center; opacity:.85}
+.plan-id{flex:0 0 auto; font-size:10.5px; opacity:.5; font-variant-numeric:tabular-nums}
+.plan-title{flex:1 1 auto; min-width:0}
+.plan-workers{flex:0 0 auto; display:inline-flex; gap:4px}
+.plan-worker{font-size:10px; padding:1px 5px; border-radius:8px;
+  background:rgba(76,201,240,0.14); color:var(--accent,#4cc9f0)}
+.plan-summary{flex:1 0 100%; font-size:11px; opacity:.62; padding-left:1.6em; overflow-wrap:anywhere}
+.plan-error{flex:1 0 100%; font-size:11px; color:#e06c6c; padding-left:1.6em; overflow-wrap:anywhere}
+.plan-done .plan-glyph{color:#5fd18c}
+.plan-running .plan-glyph{color:var(--accent,#4cc9f0); animation:plan-pulse 1.4s ease-in-out infinite}
+.plan-failed .plan-glyph,.plan-blocked .plan-glyph{color:#e06c6c}
+.plan-skipped .plan-glyph{opacity:.4}
+@keyframes plan-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.plan-running .plan-glyph{animation:none}}
+.perm-panel{display:flex; flex-direction:column; gap:2px; padding:6px 10px; border-radius:8px;
+  background:var(--panel-bg,rgba(255,255,255,0.03)); border:1px solid var(--border,rgba(255,255,255,0.08))}
+.perm-row{display:flex; align-items:baseline; gap:8px; font-size:12px; line-height:1.6}
+.perm-mark{flex:0 0 auto; width:1em; text-align:center}
+.perm-label{flex:1 1 auto; min-width:0; overflow-wrap:anywhere}
+.perm-note{flex:0 0 auto; font-size:10.5px; opacity:.55}
+.perm-on .perm-mark{color:#5fd18c}
+.perm-off .perm-mark{color:#e06c6c}
+.perm-off .perm-label{opacity:.72}
+.timeline{list-style:none; margin:0; padding:0; max-height:340px; overflow-y:auto}
+.tl-item{display:flex; align-items:baseline; gap:7px; padding:3px 2px; font-size:11.5px;
+  line-height:1.55; border-bottom:1px solid var(--border,rgba(255,255,255,0.05)); overflow-wrap:anywhere}
+.tl-time{flex:0 0 auto; font-variant-numeric:tabular-nums; opacity:.5; font-size:10.5px}
+.tl-glyph{flex:0 0 auto; width:1.1em; text-align:center}
+.tl-event{flex:0 0 auto; font-weight:600; opacity:.85}
+.tl-worker{flex:0 0 auto; font-size:10px; opacity:.6}
+.tl-detail{flex:1 1 auto; min-width:0; opacity:.62; font-size:11px}
+.tl-permission .tl-glyph{color:#e0a44c}
+.tl-checkpoint .tl-glyph{color:var(--accent,#4cc9f0)}
+.tl-task .tl-event{color:#8fd6c0}

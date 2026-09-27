@@ -320,6 +320,40 @@ mcp_list_tools_schema = {
     },
 }
 
+update_plan_schema = {
+    "type": "function",
+    "function": {
+        "name": "update_plan",
+        "description": (
+            "登记本任务的执行计划（有向无环图），用户界面可见。\n"
+            "这是一个显式的规划层：在动手之前先把要做的事拆成有依赖关系的节点，"
+            "蚁后会按依赖顺序推进，用户能随时看到进度。\n"
+            "本工具不修改任何文件、不执行任何命令，只登记意图，因此可以放心在"
+            "任务开始时以及计划需要调整时调用。\n"
+            "nodes 是 JSON 数组字符串，每个元素形如：\n"
+            '  {"id": "P1", "title": "扫描项目", "detail": "可选说明", "depends_on": []}\n'
+            "id 必须唯一；depends_on 填前置节点的 id。依赖关系不能成环，"
+            "成环或引用不存在的节点都会被拒绝并返回原因。\n"
+            "首次提交时请给出完整计划；后续调整可以只提交变化后的完整节点列表。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "本任务的目标（一句话）。",
+                },
+                "nodes": {
+                    "type": "string",
+                    "default": "[]",
+                    "description": 'JSON 数组字符串，如 [{"id":"P1","title":"扫描项目"}]',
+                },
+            },
+            "required": ["nodes"],
+        },
+    },
+}
+
 register_tool_schema = {
     "type": "function",
     "function": {

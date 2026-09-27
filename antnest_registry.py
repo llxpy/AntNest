@@ -106,6 +106,14 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("get_tool_source", PermLevel.READ, "get_tool_source_schema", "get_tool_source",
              summary="取回工具源码"),
 
+    # ---- 计划 ----
+    # level=READ + mutating=False：update_plan 不碰任何文件、不执行任何命令，
+    # 只登记意图。标成 WRITE 会让「只读审阅模式」下无法规划。
+    # 位置：v1.3.1 那 11 个之后、MCP 之前。MCP 工具在 v1.3.1 里是 extend 追加到
+    # 列表末尾的，保持这个位置关系便于与旧行为 diff。
+    ToolSpec("update_plan", PermLevel.READ, "update_plan_schema", "update_plan",
+             summary="登记本任务的执行计划（DAG），UI 可见"),
+
     # ---- MCP（启用时追加在尾部） ----
     ToolSpec("mcp_call", PermLevel.NETWORK, "mcp_call_schema", "mcp_call",
              summary="调用 MCP 服务器工具"),
