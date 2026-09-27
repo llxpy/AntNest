@@ -17,6 +17,7 @@ from pathlib import Path
 
 import code_tools as ct
 import antnest_clone_worker
+import antnest_inventory
 import admin_utils
 import antnest_log
 _qlog = antnest_log.get_logger("queen")
@@ -195,10 +196,15 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
     except Exception:
         pass
 
-    # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）
+    # 复制蚁后脚本及工蚁模式依赖（工蚁在隔离目录 import，必须随包带上）。
+    # 清单由 antnest_inventory 从真实 import 图派生——手写元组曾漏掉
+    # antnest_log / antnest_errors / antnest_config_schema 这三个硬依赖，
+    # 只因开发环境是 editable 安装才没炸。
     clone_script = os.path.join(clone_dir, "AntNest.py")
     shutil.copy2(_A().THIS_FILE, clone_script)
-    for _dep in ("antnest_clone_worker.py", "code_tools.py", "antnest_session.py", "api_compat.py", "memory_retrieval.py", "antnest_runtime_state.py", "task_manager.py", "admin_utils.py", "memory_tree.py", "model_capabilities.py", "antnest_config.py", "antnest_schemas.py", "antnest_queen.py", "antnest_memory.py", "antnest_llm.py", "antnest_loop.py"):
+    for _dep in antnest_inventory.worker_modules(_A().THIS_DIR):
+        if _dep == "AntNest.py":
+            continue
         _src = os.path.join(_A().THIS_DIR, _dep)
         if os.path.isfile(_src):
             shutil.copy2(_src, os.path.join(clone_dir, _dep))

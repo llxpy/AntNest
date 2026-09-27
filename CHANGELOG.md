@@ -1,5 +1,94 @@
 # 更新日志
 
+## v1.4 (进行中) — Reliability
+
+设计文档：[`docs/v1.4-DESIGN.md`](docs/v1.4-DESIGN.md)（v2 评审后修订）
+每个步骤完成后在此追加**本步解决了什么 / 还有什么痛点**。
+
+---
+
+### Step 0 — Module Inventory（模块清单单一真源）
+
+#### 解决的问题
+
+**修复了一个已存在的生产级缺陷：工蚁在非 editable 安装下无法启动。**
+
+`antnest_queen.spawn_clone` 用手写元组把 16 个模块复制进工蚁隔离目录，但这份清单
+与真实代码脱节，漏掉了三个**顶层 import 的硬依赖**：
+
+| 缺失模块 | 被谁在模块顶层 import |
+|----------|----------------------|
+| `antnest_log.py` | `antnest_clone_worker.py:13` |
+| `antnest_errors.py` | `code_tools.py:26`、`antnest_llm.py:15` |
+| `antnest_config_schema.py` | `antnest_config.py:76`（工蚁必经） |
+
+之所以一直没暴露：开发环境是 editable 安装（`__editable__.antnest-1.3.1.pth`），
+site-packages 的 finder 把缺失模块从仓库根解析了出来。**那是开发环境的巧合，不是代码
+的性质。** 一旦换成 wheel 安装或干净 venv，工蚁会在 import 期 `ModuleNotFoundError`，
+`result.json` 不生成，`spawn_clone` 返回「工蚁未生成结果文件」——而
+`view_file` / `list_dir` / `grep_files` / `write_file` / `search_replace` **全部**
+经由 `spawn_clone`，等于**整条工具链全瘫**。
+
+`installer/AntNest.iss` 同样漏了 `antnest_log` / `antnest_errors` /
+`antnest_config_schema` / `antnest_ui_pure`，被 `launcher.ps1` 走 `uv run --project`
+掩盖。
+
+仓库里**此前没有任何一个测试真正启动过工蚁进程**（`test_spawn_clone.py` mock 了
+`Popen`，深度闸门用例在到达 `Popen` 前就 return 了），所以 163 个测试对这类故障
+结构性失明。
+
+#### 改动
+
+- **新增 `antnest_inventory.py`**：用 `ast` 静态扫描 `AntNest.py` 的**真实 import
+  传递闭包**派生清单，取代手写元组。UI 层（`antnest_bridge` / `prototype_antnest` /
+  `phtmlwin` 等）被显式排除——工蚁不需要也不该复制它们。
+- **`antnest_queen.spawn_clone`**：复制循环改用 `antnest_inventory.worker_modules()`。
+  清单从 16 → 22 个模块。
+- **`installer/AntNest.iss`**：补齐 4 个缺失模块 + `antnest_inventory`。
+- **`pyproject.toml`**：补 `antnest_inventory`。
+- **新增 `tests/test_worker_e2e.py`（13 个用例）**，其中最关键的三条：
+  - `test_worker_runs_without_repo_on_syspath` — 把工蚁文件复制到临时目录，
+    **`PYTHONPATH=""` + `python -E` + cwd 隔离**的前提下以独立进程真跑一次工蚁，
+    断言 `result.json` 存在且 `status == "ok"`。这是仓库第一个端到端工蚁测试。
+  - `test_legacy_list_is_insufficient` — 故意用**修复前**的手写清单搭目录，断言工蚁
+    起不来。把这个 bug 钉死在测试里。
+  - `WorkerLeafModuleTest` — 静态断言 `antnest_clone_worker` 的传递依赖**不触达**
+    `antnest_config`（见下方「新增的架构约束」）。
+- **`antnest_inventory.py` 支持 `python -m antnest_inventory` 自检**，直接打印
+  import 闭包与两份打包清单的差异。
+
+#### 新增的架构约束（有测试守着）
+
+`antnest_config.py` 的 import 顺序是致命的：
+
+```
+antnest_config.py:25   import antnest_clone_worker   ← 先
+antnest_config.py:33   import antnest_log             ← 后
+antnest_config.py:47   run_if_clone_mode() → sys.exit(0)
+```
+
+`antnest_clone_worker` 在第 25 行被 import 时，`antnest_config` 处于**半初始化**状态
+（只绑定了 ≤25 行的名字）。因此：
+
+> **`antnest_clone_worker.py` 必须是叶子模块——只允许 import `antnest_log` 与标准库。
+> 任何传递依赖到 `antnest_config` 的改动都会在 import 期循环导入，杀死所有工蚁。**
+
+设计文档 v1 初版曾计划「把权限等级下发给工蚁、工蚁内自行判级」，按常规写法实现会在
+第一次提交就炸掉整个工蚁群。这个约束现在有测试守着。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| `antnest_config.py:118` import 期 `sys.exit(1)` | 未配置 API Key 时直接杀进程。`AGENTS.md` §1 明确要求「禁止 `sys.exit(1)` 阻塞启动」。**这让全仓库无法在无 key 环境下测试**，是 eval harness 的头号障碍 | 遗留 R8，本轮不动（改启动语义风险太大） |
+| `antnest_loop.py:154-159` 状态词汇表 | 只把 `error`/`blocked`/`approval_required` 视为非 ok，新增的 `denied` 会被记成 `ok` | Step 3 |
+| `antnest_loop.py:131-141` 重复调用检测 | 连续 3 次相同的**被拒**调用会触发「自我反思换方法」——等于教模型换一个方式重试刚被禁止的操作 | Step 3 |
+| `ALLOW_ALL_CLI` 声明但零读取 | 管理员模式下危险命令走阻塞式 `input()`，UI 里会冻结工作线程 | Step 3 |
+| 工具调用顺序执行 | `agent_single_loop.py:116` 顺序跑 `tool_calls`，「可并行」只是 prompt 里的建议，`MAX_CLONES` 无代码强制 | 遗留 R6，不在本轮 |
+| `load_settings`/`save_settings` 重复实现校验钳制 | 与 `antnest_config_schema` 存在漂移风险 | 遗留 R7 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

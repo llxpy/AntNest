@@ -68,6 +68,11 @@ Source: "{#SourceDir}\antnest_memory.py";        DestDir: "{app}"; Flags: ignore
 Source: "{#SourceDir}\antnest_llm.py";           DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_loop.py";          DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\antnest_toolforge.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_inventory.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_log.py";          DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_errors.py";       DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_config_schema.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\antnest_ui_pure.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\prompts\*";                DestDir: "{app}\prompts"; Flags: ignoreversion recursesubdirs
 Source: "{#SourceDir}\pyproject.toml";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\uv.lock";              DestDir: "{app}"; Flags: ignoreversion
