@@ -23,6 +23,11 @@ jobs:
       - name: Run unit tests
         run: python -m pytest tests/ -v --tb=short
 
+      - name: Run agent evals (offline)
+        # 假 LLM 驱动真实运行时：不需要 API key，不需要网络。
+        # 测的是运行时管线与安全拦截，不是模型能力（见 evals/harness.py 模块 docstring）。
+        run: python -m evals.run --verbose
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

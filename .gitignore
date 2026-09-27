@@ -46,3 +46,7 @@ AntNest_v*.exe
 r_seg.py
 r_seg.txt
 tools/_settings_render.html
+tools/_verify_out.html
+
+# 评测结果（按版本落盘，体积大且频繁变动；基线用 --save 显式提交）
+evals/results/

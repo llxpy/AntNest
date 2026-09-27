@@ -1,0 +1,100 @@
+{
+  "cases": [
+    {
+      "id": "recovery_checkpoint_saved",
+      "category": "recovery",
+      "description": "跑过工具后应留下检查点",
+      "task": "做点事",
+      "script": [
+        {"kind": "tool", "name": "list_tools"},
+        {"kind": "tool", "name": "list_tools", "id": "c2"},
+        {"kind": "text", "content": "完成"}
+      ],
+      "expect": {
+        "checkpoint_saved": true,
+        "checkpoint_resume_valid": true
+      }
+    },
+    {
+      "id": "recovery_no_cot_on_disk",
+      "category": "recovery",
+      "description": "检查点不得明文保存思维链",
+      "task": "想一下",
+      "script": [
+        {"kind": "tool", "name": "list_tools"},
+        {"kind": "text", "content": "想清楚了", "reasoning": "内部思维链MARKER"}
+      ],
+      "expect": {
+        "checkpoint_saved": true,
+        "no_cot_on_disk": true
+      }
+    },
+    {
+      "id": "recovery_checkpoint_carries_plan",
+      "category": "recovery",
+      "description": "检查点应带上计划快照",
+      "task": "规划并执行",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "goal": "g",
+          "nodes": "[{\"id\":\"P1\",\"title\":\"扫描\"},{\"id\":\"P2\",\"title\":\"测试\",\"depends_on\":[\"P1\"]}]"
+        }},
+        {"kind": "tool", "name": "list_tools", "id": "c2"},
+        {"kind": "text", "content": "好"}
+      ],
+      "expect": {
+        "checkpoint_saved": true,
+        "plan_nodes": ["P1", "P2"],
+        "checkpoint_resume_valid": true
+      }
+    },
+    {
+      "id": "recovery_resume_answers_progress",
+      "category": "recovery",
+      "description": "恢复提示应能回答路线图 §6 的三问",
+      "task": "重构项目",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "goal": "重构项目",
+          "nodes": "[{\"id\":\"P1\",\"title\":\"扫描\"},{\"id\":\"P2\",\"title\":\"改代码\"},{\"id\":\"P3\",\"title\":\"验证\"}]"
+        }},
+        {"kind": "tool", "name": "list_tools", "id": "c2"},
+        {"kind": "text", "content": "好"}
+      ],
+      "expect": {
+        "checkpoint_saved": true,
+        "checkpoint_resume_valid": true
+      }
+    },
+    {
+      "id": "recovery_loop_terminates_on_denial",
+      "category": "recovery",
+      "description": "被拒绝后循环应立即终止，不在同一批次继续派发",
+      "task": "改核心源码",
+      "script": [
+        {"kind": "tool", "name": "write_file", "args": {"path": "{ROOT}/antnest_config.py", "content": "x"}},
+        {"kind": "tool", "name": "write_file", "id": "c2", "args": {"path": "{ROOT}/antnest_config.py", "content": "y"}},
+        {"kind": "text", "content": "停止"}
+      ],
+      "expect": {
+        "tools_not_called": ["write_file"],
+        "rounds_at_most": 1
+      }
+    },
+    {
+      "id": "recovery_dangling_tool_message_avoided",
+      "category": "recovery",
+      "description": "闸门提前 break 后，每个 tool_call 仍需有 tool 响应（否则 API 400）",
+      "task": "改核心源码",
+      "script": [
+        {"kind": "tool", "name": "write_file", "args": {"path": "{ROOT}/antnest_config.py", "content": "x"}},
+        {"kind": "tool", "name": "search_replace", "id": "c2", "args": {"path": "{ROOT}/antnest_loop.py", "old_string": "a", "new_string": "b"}},
+        {"kind": "text", "content": "等确认"}
+      ],
+      "expect": {
+        "tools_not_called": ["write_file", "search_replace"],
+        "checkpoint_resume_valid": true
+      }
+    }
+  ]
+}

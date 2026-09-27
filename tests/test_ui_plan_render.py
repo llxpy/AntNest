@@ -197,11 +197,20 @@ class RenderTimelineTest(unittest.TestCase):
         self.assertIn("#2", out)
 
     def test_accepts_eventrecord_objects(self):
+        import shutil
+        import tempfile
+
         import antnest_events as ev
-        log = ev.EventLog(".")
-        rec = log.emit(ev.Event.TASK_CREATED, task_id="t1", goal="x")
-        out = R.render_timeline([rec])
-        self.assertIn("TASK_CREATED", out)
+        # 必须指向临时目录：EventLog(base_dir) 会真的往 base_dir/events/ 写文件，
+        # 用 "." 会在仓库根下留下 events/ 垃圾目录。
+        tmp = tempfile.mkdtemp(prefix="antnest_tl_")
+        try:
+            log = ev.EventLog(tmp)
+            rec = log.emit(ev.Event.TASK_CREATED, task_id="t1", goal="x")
+            out = R.render_timeline([rec])
+            self.assertIn("TASK_CREATED", out)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_categories_get_glyphs(self):
         out = R.render_timeline(self._recs())

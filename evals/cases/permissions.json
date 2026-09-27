@@ -1,0 +1,95 @@
+{
+  "cases": [
+    {
+      "id": "perm_default_level_allows_normal_tools",
+      "category": "permissions",
+      "description": "level=3（默认）应放行读、写、执行、网络",
+      "task": "做点常规操作",
+      "script": [
+        {"kind": "tool", "name": "list_tools"},
+        {"kind": "tool", "name": "update_plan", "id": "c2", "args": {"goal": "g", "nodes": "[]"}},
+        {"kind": "text", "content": "完成"}
+      ],
+      "expect": {
+        "tools_called": ["list_tools", "update_plan"],
+        "permission_denied": false
+      }
+    },
+    {
+      "id": "perm_readonly_allows_plan",
+      "category": "permissions",
+      "description": "只读模式下仍应能规划（update_plan 不改任何文件）",
+      "task": "规划一下",
+      "setup": {"perm_level": 0},
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "goal": "只读审阅",
+          "nodes": "[{\"id\":\"P1\",\"title\":\"看看\"}]"
+        }},
+        {"kind": "text", "content": "规划好了"}
+      ],
+      "expect": {
+        "plan_nodes": ["P1"],
+        "permission_denied": false
+      }
+    },
+    {
+      "id": "perm_level0_denies_network",
+      "category": "permissions",
+      "description": "level=0 应禁网络",
+      "task": "查个文档",
+      "setup": {"perm_level": 0},
+      "script": [
+        {"kind": "tool", "name": "web_fetch", "args": {"url": "https://example.com"}},
+        {"kind": "text", "content": "查不了"}
+      ],
+      "expect": {
+        "tools_not_called": ["web_fetch"],
+        "last_tool_status": "denied"
+      }
+    },
+    {
+      "id": "perm_execute_denied_at_readonly",
+      "category": "permissions",
+      "description": "level=0 应禁执行",
+      "task": "跑个命令",
+      "setup": {"perm_level": 0},
+      "script": [
+        {"kind": "tool", "name": "spawn_clone", "args": {"command": "echo hi"}},
+        {"kind": "text", "content": "不能跑"}
+      ],
+      "expect": {
+        "tools_not_called": ["spawn_clone"],
+        "last_tool_status": "denied"
+      }
+    },
+    {
+      "id": "perm_read_command_on_self_source_allowed",
+      "category": "permissions",
+      "description": "只读查看核心源码不应被误拦——过度拦截会让 Agent 无法工作",
+      "task": "读一下循环实现",
+      "script": [
+        {"kind": "tool", "name": "view_file", "args": {"path": "antnest_loop.py", "start_line": 1, "end_line": 5}},
+        {"kind": "text", "content": "读完了"}
+      ],
+      "expect": {
+        "tools_called": ["view_file"],
+        "permission_denied": false
+      }
+    },
+    {
+      "id": "perm_malformed_call_rejected",
+      "category": "permissions",
+      "description": "把工具调用写成纯文本应被识别（畸形调用检测）",
+      "task": "跑个命令",
+      "script": [
+        {"kind": "malformed", "name": "spawn_clone"},
+        {"kind": "text", "content": "抱歉，我用错格式了"}
+      ],
+      "expect": {
+        "tools_not_called": ["spawn_clone"],
+        "messages_contain": "工具调用格式不正确"
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "cases": [
+    {
+      "id": "plan_explicit_registration",
+      "category": "planning",
+      "description": "LLM 显式登记计划后，节点应按序出现且 goal 正确",
+      "task": "修复测试失败",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "goal": "修复测试失败",
+          "nodes": "[{\"id\":\"P1\",\"title\":\"扫描项目\"},{\"id\":\"P2\",\"title\":\"跑测试\",\"depends_on\":[\"P1\"]}]"
+        }},
+        {"kind": "text", "content": "计划已登记"}
+      ],
+      "expect": {
+        "plan_nodes": ["P1", "P2"],
+        "plan_goal": "修复测试失败",
+        "tools_called": ["update_plan"],
+        "events_include": ["PLAN_UPDATED"]
+      }
+    },
+    {
+      "id": "plan_cycle_rejected",
+      "category": "planning",
+      "description": "循环依赖必须被拒绝且不污染计划",
+      "task": "做个计划",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "nodes": "[{\"id\":\"A\",\"title\":\"a\",\"depends_on\":[\"B\"]},{\"id\":\"B\",\"title\":\"b\",\"depends_on\":[\"A\"]}]"
+        }},
+        {"kind": "text", "content": "被拒了"}
+      ],
+      "expect": {
+        "plan_total": 0,
+        "events_include": ["PLAN_REJECTED"]
+      }
+    },
+    {
+      "id": "plan_missing_dependency_rejected",
+      "category": "planning",
+      "description": "引用不存在的节点必须被拒绝",
+      "task": "做个计划",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "nodes": "[{\"id\":\"A\",\"title\":\"a\",\"depends_on\":[\"GHOST\"]}]"
+        }},
+        {"kind": "text", "content": "被拒了"}
+      ],
+      "expect": {
+        "plan_total": 0,
+        "events_include": ["PLAN_REJECTED"]
+      }
+    },
+    {
+      "id": "plan_auto_derived_on_spawn",
+      "category": "planning",
+      "description": "LLM 不调 update_plan 时，spawn_clone 也要自动派生节点（否则面板是空的）",
+      "task": "跑个命令",
+      "script": [
+        {"kind": "tool", "name": "spawn_clone", "args": {"command": "echo antnest-eval-ok", "timeout": 30}},
+        {"kind": "text", "content": "跑完了"}
+      ],
+      "expect": {
+        "plan_total": 1,
+        "plan_completed": ["P1"],
+        "tools_called": ["spawn_clone"],
+        "events_include": ["WORKER_STARTED", "WORKER_COMPLETED", "TASK_STARTED"]
+      }
+    },
+    {
+      "id": "plan_denied_spawn_leaves_no_node",
+      "category": "planning",
+      "description": "被权限拒绝的 spawn 不该在计划里留下节点——那件事根本没发生",
+      "task": "清理磁盘",
+      "script": [
+        {"kind": "tool", "name": "spawn_clone", "args": {"command": "rm -rf /"}},
+        {"kind": "text", "content": "太危险"}
+      ],
+      "expect": {
+        "plan_total": 0
+      }
+    },
+    {
+      "id": "plan_prompt_injected",
+      "category": "planning",
+      "description": "计划应能注入提示词（恢复后模型能看到自己规划了什么）",
+      "task": "修复测试失败",
+      "script": [
+        {"kind": "tool", "name": "update_plan", "args": {
+          "goal": "g",
+          "nodes": "[{\"id\":\"P1\",\"title\":\"扫描\"},{\"id\":\"P2\",\"title\":\"测试\",\"depends_on\":[\"P1\"]}]"
+        }},
+        {"kind": "tool", "name": "list_tools", "id": "c2"},
+        {"kind": "text", "content": "好"}
+      ],
+      "expect": {
+        "plan_nodes": ["P1", "P2"],
+        "tools_called": ["update_plan", "list_tools"]
+      }
+    }
+  ]
+}
