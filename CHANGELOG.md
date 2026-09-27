@@ -722,6 +722,162 @@ chdir 到临时目录（`PROJECT_DIR = os.getcwd()`，否则结果不可复现�
 
 ---
 
+### Step 8 — UI 接线（Agent Control Center）
+
+#### 解决的问题
+
+前七步把能力建起来了，但**用户看不到**。本步接上 UI，并顺手修掉两个已存在的并发缺陷。
+
+#### 1. Plan 面板
+
+任务监视器新增「执行计划」卡片，位于子任务面板之上：
+目标 + 进度条 + 按依赖深度缩进的节点树，节点带状态字形（`○ ● ✓ ✗ − ⊘`）、
+工蚁归属徽章、结果摘要、错误信息。
+
+#### 2. 权限徽章
+
+同一张卡片下方渲染路线图 §10 的 ✓/✗ 列表，明确告诉用户**「能看什么、能写什么、
+能不能联网、能不能改 AntNest 自己」**。L4 / L5 恒显示为「需确认」——
+这是刻意让用户看到「有些事我永远不能替他决定」。
+
+#### 3. 事件轨迹
+
+- 侧栏实时轨迹（最近 60 条）
+- 「轨迹」按钮打开完整模态，走 `replay_task` 路由拿服务端 replay 文本
+
+**数据来源从 stdout 正则抓取改为事件订阅**。此前 UI 只能靠 `_RE_TOOL_CALL`
+正则从打印行里猜「发生了什么」——那是脆弱的副通道。现在
+`antnest_events.subscribe()` 直通 UI。
+
+> `_route_timeline` 只把渲染需要的摘要字段传给 UI，**不传完整 data**。
+> 事件里可能有命令全文、文件内容；有测试专门断言这些不会泄到 UI。
+
+#### 4. 检查点 / 恢复入口
+
+计划卡片底部三个按钮：查看轨迹 / 检查点 / 恢复。对应三个新路由
+（`replay_task` / `checkpoints` / `resume_task`），背后是 Step 6 已经
+写好的 `list_checkpoints` / `resume_task` / `replay_task`。
+
+#### 5. 修掉两个并发缺陷
+
+**(a) `send()` 的 TOCTOU 窗口。**
+
+原来 `self.busy = True` 是在**新线程里**设的（`_turn` 第一行），而 `send()`
+里的 `if self.busy` 检查在前。两次快速点击发送都会通过检查、起两个 `_turn` 线程。
+
+后果不只是两个任务并行：`_turn` 会替换**进程全局**的 `sys.stdout`（保存
+`old_out` → 装 `StdoutTap` → 恢复）。两个线程交错恢复，就会把 `sys.stdout`
+永久指向一个已死的 `StdoutTap`——而那是**唯一**产生工具调用 UI 事件的通道
+（`_RE_TOOL_CALL`）。此后整个会话的工具事件全部丢失，且没有任何报错。
+
+修法：`send()` 在**启动线程之前** `try-acquire` 一个 `_turn_lock`，抢不到直接
+返回 `busy`；`_turn` 的 `finally` 里释放。
+
+**(b) `sys.stdout` 恢复改为比较交换。**
+
+原来是 `finally: sys.stdout = old_out`（无条件）。改成
+`if sys.stdout is _my_tap: sys.stdout = old_out` —— 只有当 stdout 仍是我装的
+这个 tap 时才恢复，避免覆盖期间别人换上的对象，也避免 `old_out` 本身就是一个
+已死 tap 时被再装回去。
+
+**(c) UI 全局列表加锁。**
+
+`on_core_event` 在 agent 线程上被同步调用（`AntNestCore.emit` 不排队），
+`_flush` 跑在 `threading.Timer` 线程上。v1.3.1 里 `SUBTASKS.clear()` 出现在
+5 处，任一与 agent 线程的 append 竞争都会静默丢条目。新增 `_ui_state_lock`
+（`RLock`）保护 `SUBTASKS` / `WORKERS` / `EVENTS` / `PLAN`，
+`turn start` 的清理也在锁内。
+
+#### JS 侧
+
+`openTimelineModal` / `closeTimelineModal`。轨迹行用 **DOM API + `textContent`**
+渲染而不是字符串拼接——一是 `app.js` 里根本没有 `esc()`（用了会直接
+`ReferenceError`），二是 `textContent` 天然免疫注入。
+
+> 这个坑是脚本化编辑留下的死代码被我在核对时发现的，已整体重写该函数。
+
+#### 测试
+
+`tests/test_ui_wiring.py`（29 用例）：
+- 事件协议：4 个新事件 kind 的 emit 与 handler 分支
+- 并发修复：第二次 `send` 被拒（功能测试）、`_turn` 提前失败后锁被释放
+  （用**真实** `_turn` 走 `ensure_loaded` 失败路径，不用假的绕开 finally）、
+  CAS 恢复的源码断言
+- 渲染接线：面板元素、模态、路由、JS 函数、CSS 类是否存在
+- 新模块都在自身源码门禁 + 工蚁依赖清单内
+
+另外补了 `.plan-card` / `#v14-controls` / `#timeline-modal-list` 的样式
+（第一版漏了，`test_css_has_v14_styles` 抓到了），并让展开模态用完整列表
+而不是面板的 60 条。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **恢复是手动的** | 进程重启后不自动恢复，用户得点「恢复」 | 后续：启动时检测最近未完成检查点并提示 |
+| 计划不进系统提示 | `Plan.to_prompt()` 已实现但没接进 `_with_retrieved_memory`——恢复后模型看不到自己规划了什么 | 下一轮 |
+| 越权询问只在聊天里 | 权限 ASK 走对话式协议（见 Step 3 的 C3 约束），没有模态确认框 | 遗留：真正的模态需要 reply 通道 |
+| `SUBTASKS` 面板与 Plan 面板信息重叠 | 前者是工蚁视角、后者是计划视角，但都挂在监视器上，可能显得拥挤 | 观察用户反馈 |
+| 设置页无权限等级入口 | `permissions.level` 只能改 config.json | 后续：加进设置页 |
+| 三份日志仍是三份 | `events` / `audit` / `ui_trace` 未合并 | 遗留（与 stdout 抓取层一起处理） |
+| 工具调用仍顺序执行 | Plan 的「并行」只是依赖表达 | 遗留 R6，不在本轮 |
+
+---
+
+## v1.4 收尾
+
+### 汇总
+
+| 指标 | v1.3.1 基线 | v1.4 |
+|------|------------|------|
+| 单元测试 | 163 | **559** |
+| Agent 评测用例 | 无 | **24**（4 类，变异测试验证过鉴别力） |
+| 工具名真源 | 4 处手写，2 处已腐烂 | **1 处**（`antnest_registry.TOOL_SPECS`） |
+| 危险命令表 | 3 张，语义不一 | **1 张** + 工蚁侧第二道红线 |
+| 权限判断点 | 6 处手写 if | **1 个决策函数** |
+| 日志 | 3 份定位模糊 | **events（重放）+ audit（追责）** |
+| 计划 | 仅自由文本 | **显式 DAG + 自动派生兜底** |
+| 恢复 | 文本快照 | **结构化检查点 + 安全 rehydrate** |
+
+### 修掉的已存在缺陷
+
+1. **所有工具调用全部失败**——`antnest_loop` 调 `_A().get_audit()`，而壳从未
+   re-export 它。每个工具派发都抛 AttributeError 被宽 except 吞掉。
+2. **工蚁依赖清单缺 3 个硬依赖**——wheel 安装下整条工具链全瘫，只因 editable
+   安装掩盖了它。
+3. **自身源码保护名单过期**——Agent 可无确认改写 `antnest_config.py`。
+4. **UI 永久 busy / 工具事件永久丢失**——`send()` 的 TOCTOU + `sys.stdout`
+   无条件恢复。
+5. **管理员模式冻结整个 Agent**——`ALLOW_ALL_CLI` 零读取，危险命令走阻塞式
+   `input()`，而 UI 没有界面能应答。
+6. **prompt 与畸形调用正则已漏 3 个工具**。
+
+### 明确没做（不夸大）
+
+- **权限拦截不是 Sandbox**。危险模式是正则提示不是控制：`python x.py` 里藏
+  `shutil.rmtree` 拦不到。有测试专门钉死这一点，防止文档/UI 夸大。
+  真正的强隔离（Job Object / WSL2 / AppContainer）属 v1.5。
+- **工具调用仍是顺序执行**。Plan DAG 表达依赖结构，不承诺并发。
+  `MAX_CLONES` 仍无代码强制。
+- **评测不测模型能力**。假 LLM 驱动真实运行时，测的是管线正确性与安全拦截。
+  `Report.model_dependent` 是显式字段，不靠注释说明。
+- **没有 v1.3.1 评测基线**可比（v1.3.1 没有评测设施）。
+
+### 遗留清单
+
+| ID | 项 |
+|----|-----|
+| R4 | 真正的 Worker Sandbox |
+| R5 | 统一 checkpoint 与 `stop_snapshot` 双源 |
+| R6 | 工具调用真并行 |
+| R7 | `load_settings`/`save_settings` 与 schema 的校验去重 |
+| R8 | `antnest_config.py:118` 的 `sys.exit(1)` 改为非致命（AGENTS.md §1 要求） |
+| R9 | 双命名空间共享状态重构（`from x import *` 值拷贝根因） |
+| R10 | `AGENT_CANCEL` 改 `threading.Event` |
+| R11 | Worker Profile、Memory 2.0、Skills、Multi-Agent |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

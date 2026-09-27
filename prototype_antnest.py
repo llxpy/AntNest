@@ -1152,6 +1152,7 @@ from ui_assets_loader import load_css, load_js, load_image_data_uri
 
 
 import ui_render
+import antnest_permissions
 
 
 
@@ -2242,6 +2243,29 @@ WORKERS = []           # [{id, name, status, task, note, artifacts}]
 
 
 
+# ===== v1.4：Plan DAG / 权限 / 事件轨迹 =====
+
+# 保护这些全局列表的锁。on_core_event 在 **agent 线程**上被同步调用
+# （AntNestCore.emit 遍历订阅者，不排队），而 _flush 跑在 threading.Timer 线程上。
+# v1.3.1 里 SUBTASKS.clear() 出现在 5 处，任一与 agent 线程的 append 竞争都会
+# 静默丢条目。v1.4 会显著增加事件流量（plan 每次变更都推一次），必须先加锁。
+_ui_state_lock = threading.RLock()
+
+# 当前计划快照（antnest_plan.snapshot() 的返回结构）
+PLAN = {}
+
+# 事件轨迹（antnest_events.EventRecord 列表，倒序只保留最近 N 条）
+EVENTS = []
+_EVENTS_MAX = 400
+
+# 回合级任务 id（v1.4，用于检查点/重放入口）
+TASK_ID = ""
+
+# 权限等级（0-5）；None 表示核心未就绪
+PERM_LEVEL = None
+
+
+
 
 
 _SESSION_ID = "default"  # 当前会话 id（对话记录用；默认与旧版单会话兼容）
@@ -3013,6 +3037,382 @@ def _flush():
 
 
             app.update("#subtasks-modal-list", _subtasks_html(limit=MAX_MODAL_ITEMS))
+
+
+
+
+
+        if "plan" in parts:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            with _ui_state_lock:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                snap = dict(PLAN)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            _plan_html = ui_render.render_plan(snap)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            app.update(
+
+
+
+
+
+
+
+                "#plan",
+
+
+
+
+
+
+
+                _plan_html or ('<div class="muted">尚未规划。</div>'),
+
+
+
+
+
+
+
+            )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if "timeline" in parts:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            with _ui_state_lock:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                rows = list(EVENTS)[:60]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            app.update(
+
+
+
+
+
+
+
+                "#timeline",
+
+
+
+
+
+
+
+                ui_render.render_timeline(rows)
+
+
+
+
+
+
+
+                or '<div class="muted">本任务暂无事件。</div>',
+
+
+
+
+
+
+
+            )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            # 展开模态用完整列表（面板只取 60 条）
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            app.update(
+
+
+
+
+
+
+
+                "#timeline-modal-list",
+
+
+
+
+
+
+
+                ui_render.render_timeline(list(EVENTS)[:MAX_MODAL_ITEMS])
+
+
+
+
+
+
+
+                or '<div class="muted">本任务暂无事件。</div>',
+
+
+
+
+
+
+
+            )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if "perm" in parts:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            rows = (
+
+
+
+
+
+
+
+                antnest_permissions.describe_grants(
+
+
+
+
+
+
+
+                    antnest_permissions.PermLevel.parse(PERM_LEVEL)
+
+
+
+
+
+
+
+                ) if PERM_LEVEL is not None else []
+
+
+
+
+
+
+
+            )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            app.update("#perm", ui_render.render_permissions(rows))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if "v14" in parts:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            app.update("#v14-controls", _control_buttons().render() if TASK_ID else "")
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4326,35 +4726,122 @@ def on_core_event(kind, p):
 
 
 
-        elif kind == "worker":
-            _prev_w = next((w for w in WORKERS if w.get("id") == p["id"]), None)
-            _upsert(WORKERS, {
-                "id": p["id"], "name": p.get("name", ""), "status": p.get("status", "run"),
-                "task": p.get("task", ""), "note": p.get("note", ""),
-                "artifacts": p.get("artifacts", []) or [],
-            })
-            if _prev_w is None:
-                p = {**p, "since": time.time()}
-            _w_name = p.get("name") or str(p.get("id") or "")[:8] or "工蚁"
-            if _prev_w is None:
-                # 分发瞬间：聊天流里打出派发事件，右侧工蚁卡同时出现
-                _w_task = (p.get("task") or "").strip()
-                CHATS.append({
-                    "role": "sys",
-                    "text": f"🐜 蚁后派出工蚁「{_w_name}」" + (f"，任务：{_w_task}" if _w_task else ""),
-                })
-                _mark("chat", "workers")
-            elif _prev_w.get("status") != "ok" and p.get("status") == "ok":
-                _n_art = len(p.get("artifacts") or [])
-                CHATS.append({
-                    "role": "sys",
-                    "text": f"✅ 工蚁「{_w_name}」已完工" + (f"，产出 {_n_art} 个工件" if _n_art else ""),
-                })
-                _mark("chat", "workers")
-            elif _prev_w.get("status") not in ("fail",) and p.get("status") == "fail":
-                CHATS.append({"role": "sys", "text": f"✗ 工蚁「{_w_name}」被蚁后打回重做"})
-                _mark("chat", "workers")
-            else:
+        elif kind == "worker":
+
+
+
+            _prev_w = next((w for w in WORKERS if w.get("id") == p["id"]), None)
+
+
+
+            _upsert(WORKERS, {
+
+
+
+                "id": p["id"], "name": p.get("name", ""), "status": p.get("status", "run"),
+
+
+
+                "task": p.get("task", ""), "note": p.get("note", ""),
+
+
+
+                "artifacts": p.get("artifacts", []) or [],
+
+
+
+            })
+
+
+
+            if _prev_w is None:
+
+
+
+                p = {**p, "since": time.time()}
+
+
+
+            _w_name = p.get("name") or str(p.get("id") or "")[:8] or "工蚁"
+
+
+
+            if _prev_w is None:
+
+
+
+                # 分发瞬间：聊天流里打出派发事件，右侧工蚁卡同时出现
+
+
+
+                _w_task = (p.get("task") or "").strip()
+
+
+
+                CHATS.append({
+
+
+
+                    "role": "sys",
+
+
+
+                    "text": f"🐜 蚁后派出工蚁「{_w_name}」" + (f"，任务：{_w_task}" if _w_task else ""),
+
+
+
+                })
+
+
+
+                _mark("chat", "workers")
+
+
+
+            elif _prev_w.get("status") != "ok" and p.get("status") == "ok":
+
+
+
+                _n_art = len(p.get("artifacts") or [])
+
+
+
+                CHATS.append({
+
+
+
+                    "role": "sys",
+
+
+
+                    "text": f"✅ 工蚁「{_w_name}」已完工" + (f"，产出 {_n_art} 个工件" if _n_art else ""),
+
+
+
+                })
+
+
+
+                _mark("chat", "workers")
+
+
+
+            elif _prev_w.get("status") not in ("fail",) and p.get("status") == "fail":
+
+
+
+                CHATS.append({"role": "sys", "text": f"✗ 工蚁「{_w_name}」被蚁后打回重做"})
+
+
+
+                _mark("chat", "workers")
+
+
+
+            else:
+
+
+
                 _mark("workers")
 
 
@@ -4365,11 +4852,62 @@ def on_core_event(kind, p):
 
 
 
+        elif kind == "plan":
 
 
-        elif kind == "subtask":
-            _prev_s = next((s for s in SUBTASKS if s.get("id") == p["id"]), None)
-            if _prev_s is None:
+            global PLAN
+
+            with _ui_state_lock:
+
+                PLAN = dict(p or {})
+
+            _mark("plan")
+
+
+        elif kind == "task_id":
+
+
+            global TASK_ID
+
+            TASK_ID = str(p.get("task_id") or "")
+
+            _mark("v14")
+
+
+        elif kind == "event":
+
+
+            global EVENTS
+
+            with _ui_state_lock:
+
+                EVENTS.insert(0, p)
+
+                if len(EVENTS) > _EVENTS_MAX:
+
+                    del EVENTS[_EVENTS_MAX:]
+
+            _mark("timeline")
+
+
+        elif kind == "perm":
+
+
+            global PERM_LEVEL
+
+            PERM_LEVEL = p.get("level")
+
+            _mark("perm")
+
+
+        elif kind == "subtask":
+
+
+            _prev_s = next((s for s in SUBTASKS if s.get("id") == p["id"]), None)
+            if _prev_s is None:
+
+
+
                 p = {**p, "since": time.time()}
 
 
@@ -4670,13 +5208,39 @@ def on_core_event(kind, p):
 
 
 
-                SUBTASKS.clear()
+                with _ui_state_lock:
 
 
 
 
 
-                WORKERS.clear()
+
+
+                    SUBTASKS.clear()
+
+
+
+
+
+
+
+                    WORKERS.clear()
+
+
+
+
+
+
+
+                    EVENTS.clear()
+
+
+
+
+
+
+
+                    PLAN = {}
 
 
 
@@ -5522,27 +6086,90 @@ _STATUS_TEXT = {"ok": "完成", "run": "执行中", "fail": "打回", "idle": "�
 
 
 
-def _dur_text(since):
-    """since(epoch 秒) → 简短时长；JS ticker 每秒刷新带 data-since 的元素。"""
-    if not since:
-        return ""
-    d = max(0.0, time.time() - float(since))
-    if d < 60:
-        return f"{int(d)}s"
-    if d < 3600:
-        return f"{int(d // 60)}m{int(d % 60):02d}s"
-    return f"{int(d // 3600)}h{int(d % 3600 // 60):02d}m"
-
-
-def _dur_html(since):
-    if not since:
-        return ""
-    return (
-        f'<span class="w-dur" data-since="{int(float(since) * 1000)}">'
-        f"{_esc(_dur_text(since))}</span>"
-    )
-
-
+def _dur_text(since):
+
+
+
+    """since(epoch 秒) → 简短时长；JS ticker 每秒刷新带 data-since 的元素。"""
+
+
+
+    if not since:
+
+
+
+        return ""
+
+
+
+    d = max(0.0, time.time() - float(since))
+
+
+
+    if d < 60:
+
+
+
+        return f"{int(d)}s"
+
+
+
+    if d < 3600:
+
+
+
+        return f"{int(d // 60)}m{int(d % 60):02d}s"
+
+
+
+    return f"{int(d // 3600)}h{int(d % 3600 // 60):02d}m"
+
+
+
+
+
+
+
+
+
+
+
+def _dur_html(since):
+
+
+
+    if not since:
+
+
+
+        return ""
+
+
+
+    return (
+
+
+
+        f'<span class="w-dur" data-since="{int(float(since) * 1000)}">'
+
+
+
+        f"{_esc(_dur_text(since))}</span>"
+
+
+
+    )
+
+
+
+
+
+
+
+
+
+
+
 def _clip(s, n=120):
 
 
@@ -5675,10 +6302,22 @@ def _subtasks_html(limit=None):
 
 
 
-                    ui.div(cls="top")[
-                    ui.div(cls="title")[_clip(s.get("title", ""), 60)],
-                    ui.raw(_dur_html(s.get("since"))),
-                    pill,
+                    ui.div(cls="top")[
+
+
+
+                    ui.div(cls="title")[_clip(s.get("title", ""), 60)],
+
+
+
+                    ui.raw(_dur_html(s.get("since"))),
+
+
+
+                    pill,
+
+
+
                 ],
 
 
@@ -5775,14 +6414,38 @@ def _workers_html(limit=None):
 
 
 
-            ui.raw(
-    '<svg class="empty-art" viewBox="0 0 120 60" width="120" height="60" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
-    '<path d="M14 50 Q60 10 106 50"/><line x1="8" y1="50" x2="112" y2="50"/>'
-    '<path d="M46 50 C46 42 56 42 56 32"/><path d="M74 50 C74 46 84 46 84 36"/>'
-    '<circle cx="56" cy="29" r="1.6"/><circle cx="84" cy="33" r="1.6"/>'
-    '<circle cx="30" cy="45" r="2.4"/><circle cx="36" cy="45" r="2.4"/><circle cx="42.5" cy="45" r="1.8"/>'
-    '<path d="M28 42 l-3 -3 M38 42 l3 -3 M31 48 l-3 3 M42 48 l3 3"/>'
-    '</svg>暂无工蚁<br>任务分派后，这里实时显示每只工蚁的执行状态'
+            ui.raw(
+
+
+
+    '<svg class="empty-art" viewBox="0 0 120 60" width="120" height="60" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+
+
+
+    '<path d="M14 50 Q60 10 106 50"/><line x1="8" y1="50" x2="112" y2="50"/>'
+
+
+
+    '<path d="M46 50 C46 42 56 42 56 32"/><path d="M74 50 C74 46 84 46 84 36"/>'
+
+
+
+    '<circle cx="56" cy="29" r="1.6"/><circle cx="84" cy="33" r="1.6"/>'
+
+
+
+    '<circle cx="30" cy="45" r="2.4"/><circle cx="36" cy="45" r="2.4"/><circle cx="42.5" cy="45" r="1.8"/>'
+
+
+
+    '<path d="M28 42 l-3 -3 M38 42 l3 -3 M31 48 l-3 3 M42 48 l3 3"/>'
+
+
+
+    '</svg>暂无工蚁<br>任务分派后，这里实时显示每只工蚁的执行状态'
+
+
+
 )
 
 
@@ -5837,32 +6500,92 @@ def _workers_html(limit=None):
 
 
 
-        art = w.get("artifacts") or []
-        art_html = ""
-        if art:
-            names = " | ".join(a.split("/")[-1] for a in art[:12])
-            art_html = (
-                f'<div class="art-badge" title="{_esc(names)}">{len(art)} 个产物</div>'
+        art = w.get("artifacts") or []
+
+
+
+        art_html = ""
+
+
+
+        if art:
+
+
+
+            names = " | ".join(a.split("/")[-1] for a in art[:12])
+
+
+
+            art_html = (
+
+
+
+                f'<div class="art-badge" title="{_esc(names)}">{len(art)} 个产物</div>'
+
+
+
             )
 
 
 
 
 
-        rows = [
-            ui.div(cls="top")[
-                ui.div(cls="name")[_clip(w.get("name", ""), 50)],
-                ui.raw(_dur_html(w.get("since"))),
-                pill,
-            ],
-            ui.div(cls="meta task")[f"❯ {_clip(w.get('task', ''), 80)}"],
-        ]
-        if (w.get("note") or "").strip():
-            rows.append(ui.div(cls="meta note")[f"↳ {_clip(w.get('note', ''), 100)}"])
-        if art_html:
-            rows.append(ui.raw(art_html))
-        out.append(
-            ui.div(cls="worker-card")[*rows].render()
+        rows = [
+
+
+
+            ui.div(cls="top")[
+
+
+
+                ui.div(cls="name")[_clip(w.get("name", ""), 50)],
+
+
+
+                ui.raw(_dur_html(w.get("since"))),
+
+
+
+                pill,
+
+
+
+            ],
+
+
+
+            ui.div(cls="meta task")[f"❯ {_clip(w.get('task', ''), 80)}"],
+
+
+
+        ]
+
+
+
+        if (w.get("note") or "").strip():
+
+
+
+            rows.append(ui.div(cls="meta note")[f"↳ {_clip(w.get('note', ''), 100)}"])
+
+
+
+        if art_html:
+
+
+
+            rows.append(ui.raw(art_html))
+
+
+
+        out.append(
+
+
+
+            ui.div(cls="worker-card")[*rows].render()
+
+
+
         )
 
 
@@ -5946,6 +6669,90 @@ def _workers():
 
 
 
+# ====================== v1.4：Plan / 权限 / 事件轨迹 ======================
+
+def _plan_panel():
+
+
+
+    with _ui_state_lock:
+
+        snap = dict(PLAN)
+
+
+
+    html = ui_render.render_plan(snap)
+
+    if not html:
+
+        return ui.div(cls="muted", id="plan-empty")["尚未规划。蚁后会在动手前登记计划。"]
+
+
+
+    return ui.div(id="plan")[ui.raw(html)]
+
+
+
+def _perm_panel():
+
+
+
+    if PERM_LEVEL is None:
+
+        return ui.div(id="perm-empty")[""]
+
+
+
+    rows = antnest_permissions.describe_grants(antnest_permissions.PermLevel.parse(PERM_LEVEL))
+
+    return ui.div(id="perm")[ui.raw(ui_render.render_permissions(rows))]
+
+
+
+def _timeline_panel():
+
+
+
+    with _ui_state_lock:
+
+        rows = list(EVENTS)[:60]
+
+
+
+    if not rows:
+
+        return ui.div(cls="muted", id="timeline-empty")["本任务暂无事件。"]
+
+
+
+    return ui.div(id="timeline")[ui.raw(ui_render.render_timeline(rows))]
+
+
+
+def _control_buttons():
+
+
+
+    if not TASK_ID:
+
+        return ui.div(id="v14-controls")[""]
+
+
+
+    return ui.div(id="v14-controls")[
+        ui.raw(
+            '<button class="btn ghost" onclick="phwCall(\'replay_task\',{})"'
+            ' title="重放本任务的事件时间线">查看轨迹</button>'
+            '<button class="btn ghost" onclick="phwCall(\'checkpoints\',{})"'
+            ' title="列出本任务的检查点">检查点</button>'
+            '<button class="btn ghost" onclick="phwCall(\'resume_task\',{})"'
+            ' title="从最近检查点恢复（还原消息与计划）">恢复</button>'
+        )
+    ]
+
+
+
+
 
 
 
@@ -5983,17 +6790,50 @@ def _field(key, label, value, full=False, code=False, browse=None, hint="", inpu
 
 
 
-    if input_type == "password":
-        inp = ui.raw(
-            f'<div class="pw-row">'
-            f'<input class="{cls}" id="set-{key}" type="password" value="{_h.escape(str(value))}" autocomplete="off">'
-            f'<button type="button" class="pw-eye" onclick="revealPassword(\'{key}\')" title="显示/隐藏">'
-            f'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
-            f'</button></div>'
-        )
-    else:
-        inp = ui.raw(
-            f'<input class="{cls}" id="set-{key}" value="{_h.escape(str(value))}"{type_attr}{list_attr}>'
+    if input_type == "password":
+
+
+
+        inp = ui.raw(
+
+
+
+            f'<div class="pw-row">'
+
+
+
+            f'<input class="{cls}" id="set-{key}" type="password" value="{_h.escape(str(value))}" autocomplete="off">'
+
+
+
+            f'<button type="button" class="pw-eye" onclick="revealPassword(\'{key}\')" title="显示/隐藏">'
+
+
+
+            f'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+
+
+
+            f'</button></div>'
+
+
+
+        )
+
+
+
+    else:
+
+
+
+        inp = ui.raw(
+
+
+
+            f'<input class="{cls}" id="set-{key}" value="{_h.escape(str(value))}"{type_attr}{list_attr}>'
+
+
+
         )
 
 
@@ -7122,58 +7962,214 @@ def _render_skills_list():
 
 
 
-def _mcp_dir():
-    p = SETTINGS.get("mcp_config") or "mcp.json"
-    if os.path.isabs(p):
-        return os.path.dirname(p) or p
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.dirname(p) or ".")
-
-
-def _paths_html():
-    items = [
-        ("config", "config.json（核心配置）", os.path.dirname(bridge.CORE_CFG)),
-        ("ui", "ui_config.json（外观与 UI 设置）", os.path.dirname(bridge.UI_CFG)),
-        ("mcp", "mcp.json（MCP 服务器）", _mcp_dir()),
-    ]
-    rows = []
-    for key, label, d in items:
-        d = d or "."
-        rows.append(
-            f'<div class="path-item"><span class="path-name">{_h.escape(label)}</span>'
-            f'<span class="path-dir" title="{_h.escape(d)}">{_h.escape(d)}</span>'
-            f'<button type="button" class="btn ghost" onclick="openCfgDir(\'{key}\')">打开目录</button></div>'
-        )
-    return "".join(rows)
-
-
-def _mcp_servers_html():
-    p = SETTINGS.get("mcp_config") or "mcp.json"
-    path = p if os.path.isabs(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), p)
-    if not os.path.exists(path):
-        return '<div class="mcp-note">未找到 mcp.json；启用 MCP 后按所填路径读取服务器列表</div>'
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        servers = data.get("mcpServers") if isinstance(data, dict) else None
-        if not isinstance(servers, dict) or not servers:
-            servers = data.get("servers") if isinstance(data, dict) else None
-        if not isinstance(servers, dict) or not servers:
-            return '<div class="mcp-note">mcp.json 中没有配置任何服务器</div>'
-        chips = []
-        for name, cfgv in servers.items():
-            if not isinstance(cfgv, dict):
-                continue
-            cmd = " ".join(str(x) for x in (cfgv.get("command"), *(cfgv.get("args") or [])) if x)
-            chips.append(
-                f'<span class="mcp-chip" title="{_h.escape(cmd)}">{_h.escape(str(name))}</span>'
-            )
-        if not chips:
-            return '<div class="mcp-note">mcp.json 中没有可识别的服务器条目</div>'
-        return '<div class="mcp-list">' + "".join(chips) + "</div>"
-    except Exception as e:
-        return f'<div class="mcp-note">mcp.json 解析失败：{_h.escape(str(e))}</div>'
-
-
+def _mcp_dir():
+
+
+
+    p = SETTINGS.get("mcp_config") or "mcp.json"
+
+
+
+    if os.path.isabs(p):
+
+
+
+        return os.path.dirname(p) or p
+
+
+
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.dirname(p) or ".")
+
+
+
+
+
+
+
+
+
+
+
+def _paths_html():
+
+
+
+    items = [
+
+
+
+        ("config", "config.json（核心配置）", os.path.dirname(bridge.CORE_CFG)),
+
+
+
+        ("ui", "ui_config.json（外观与 UI 设置）", os.path.dirname(bridge.UI_CFG)),
+
+
+
+        ("mcp", "mcp.json（MCP 服务器）", _mcp_dir()),
+
+
+
+    ]
+
+
+
+    rows = []
+
+
+
+    for key, label, d in items:
+
+
+
+        d = d or "."
+
+
+
+        rows.append(
+
+
+
+            f'<div class="path-item"><span class="path-name">{_h.escape(label)}</span>'
+
+
+
+            f'<span class="path-dir" title="{_h.escape(d)}">{_h.escape(d)}</span>'
+
+
+
+            f'<button type="button" class="btn ghost" onclick="openCfgDir(\'{key}\')">打开目录</button></div>'
+
+
+
+        )
+
+
+
+    return "".join(rows)
+
+
+
+
+
+
+
+
+
+
+
+def _mcp_servers_html():
+
+
+
+    p = SETTINGS.get("mcp_config") or "mcp.json"
+
+
+
+    path = p if os.path.isabs(p) else os.path.join(os.path.dirname(os.path.abspath(__file__)), p)
+
+
+
+    if not os.path.exists(path):
+
+
+
+        return '<div class="mcp-note">未找到 mcp.json；启用 MCP 后按所填路径读取服务器列表</div>'
+
+
+
+    try:
+
+
+
+        with open(path, encoding="utf-8") as f:
+
+
+
+            data = json.load(f)
+
+
+
+        servers = data.get("mcpServers") if isinstance(data, dict) else None
+
+
+
+        if not isinstance(servers, dict) or not servers:
+
+
+
+            servers = data.get("servers") if isinstance(data, dict) else None
+
+
+
+        if not isinstance(servers, dict) or not servers:
+
+
+
+            return '<div class="mcp-note">mcp.json 中没有配置任何服务器</div>'
+
+
+
+        chips = []
+
+
+
+        for name, cfgv in servers.items():
+
+
+
+            if not isinstance(cfgv, dict):
+
+
+
+                continue
+
+
+
+            cmd = " ".join(str(x) for x in (cfgv.get("command"), *(cfgv.get("args") or [])) if x)
+
+
+
+            chips.append(
+
+
+
+                f'<span class="mcp-chip" title="{_h.escape(cmd)}">{_h.escape(str(name))}</span>'
+
+
+
+            )
+
+
+
+        if not chips:
+
+
+
+            return '<div class="mcp-note">mcp.json 中没有可识别的服务器条目</div>'
+
+
+
+        return '<div class="mcp-list">' + "".join(chips) + "</div>"
+
+
+
+    except Exception as e:
+
+
+
+        return f'<div class="mcp-note">mcp.json 解析失败：{_h.escape(str(e))}</div>'
+
+
+
+
+
+
+
+
+
+
+
 def _settings_modal():
 
 
@@ -7186,14 +8182,38 @@ def _settings_modal():
 
 
 
-        ui.raw('<div class="field full"><div class="field-label">服务商预设</div><div class="preset-row">'
-               '<button type="button" class="chip" onclick="applyPreset(\'deepseek\')">DeepSeek</button>'
-               '<button type="button" class="chip" onclick="applyPreset(\'minimax\')">MiniMax</button>'
-               '<button type="button" class="chip" onclick="applyPreset(\'openai\')">OpenAI</button>'
-               '<button type="button" class="chip" onclick="applyPreset(\'moonshot\')">Kimi</button>'
-               '<button type="button" class="chip" onclick="applyPreset(\'openrouter\')">OpenRouter</button>'
-               '<button type="button" class="chip" onclick="applyPreset(\'ollama\')">Ollama 本地</button>'
-               '</div><div class="field-hint">点击自动填入地址与模型建议；Key 仍需手动填写，「检测模型列表」可拉取可选模型</div></div>'),
+        ui.raw('<div class="field full"><div class="field-label">服务商预设</div><div class="preset-row">'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'deepseek\')">DeepSeek</button>'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'minimax\')">MiniMax</button>'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'openai\')">OpenAI</button>'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'moonshot\')">Kimi</button>'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'openrouter\')">OpenRouter</button>'
+
+
+
+               '<button type="button" class="chip" onclick="applyPreset(\'ollama\')">Ollama 本地</button>'
+
+
+
+               '</div><div class="field-hint">点击自动填入地址与模型建议；Key 仍需手动填写，「检测模型列表」可拉取可选模型</div></div>'),
+
+
+
         _field("llm_base_url", "API Base URL", SETTINGS["llm_base_url"], code=True,
 
 
@@ -7242,8 +8262,14 @@ def _settings_modal():
 
 
 
-        _field("temperature", "Temperature 温度", SETTINGS.get("temperature", "0.6"), code=True,
-               hint="0=更稳定，1+=更发散；默认 0.6，保存后热应用到核心"),
+        _field("temperature", "Temperature 温度", SETTINGS.get("temperature", "0.6"), code=True,
+
+
+
+               hint="0=更稳定，1+=更发散；默认 0.6，保存后热应用到核心"),
+
+
+
         _field("thinking_mode", "Thinking 模式", SETTINGS.get("thinking_mode", "auto"), code=True,
 
 
@@ -7334,8 +8360,14 @@ def _settings_modal():
 
 
 
-               hint="相对路径或绝对路径"),
-        ui.raw('<div class="field full"><div class="field-label">MCP 服务器</div>'
+               hint="相对路径或绝对路径"),
+
+
+
+        ui.raw('<div class="field full"><div class="field-label">MCP 服务器</div>'
+
+
+
                + _mcp_servers_html() + '</div>'),
 
 
@@ -7486,81 +8518,306 @@ def _settings_modal():
 
 
 
-    adv = ui.div(cls="settings-grid")[
-        _field("compact_threshold", "上下文压缩阈值", SETTINGS.get("compact_threshold", "0.85"), code=True,
-               hint="0.1~1.0；token 占比达到阈值即触发记忆压缩，默认 0.85"),
-        _field("worker_timeout", "工蚁超时（秒）", SETTINGS.get("worker_timeout", "300"), code=True,
-               hint="1~3600；单只工蚁的最长执行时间，超时被回收"),
-        ui.raw('<div class="field full"><div class="field-label">配置与数据</div><div class="path-list">'
-               + _paths_html() + '</div><div class="field-hint">直接改配置文件后重启应用生效</div></div>'),
-    ]
-
-    icons = {
-        "llm": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-        "nest": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
-        "integration": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
-        "appearance": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>',
-        "agent": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
-        "advanced": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
-    }
-    rail_items = [
-        ("llm", "LLM 连接"),
-        ("nest", "蚁巢参数"),
-        ("integration", "集成"),
-        ("appearance", "外观"),
-        ("agent", "Agent 偏好"),
-        ("advanced", "高级"),
-    ]
-    rail_parts = []
-    for _i, (key, label) in enumerate(rail_items):
-        act = " active" if _i == 0 else ""
-        rail_parts.append(
-            f'<button type="button" class="rail-item{act}" data-panel="{key}" onclick="showSettingsPanel(\'{key}\')">'
-            f'{icons[key]}<span>{_h.escape(label)}</span></button>'
-        )
-    llm_actions = (
-        '<div class="section-actions">'
-        '<button type="button" class="btn ghost" onclick="onListModels()">检测模型列表</button>'
-        '<button type="button" class="btn ghost" onclick="onTestApi()">测试连接</button>'
-        '</div>'
-    )
-    integ_actions = (
-        '<div class="section-actions">'
-        '<button type="button" class="btn ghost" onclick="openSkillsModal()">管理 Skills</button>'
-        '<button type="button" class="btn ghost" onclick="openCfgDir(\'mcp\')">mcp.json 目录</button>'
-        '</div>'
-    )
-    panels_html = (
-        '<div class="settings-panels" id="settings-panels">'
-        f'<div class="settings-panel active" data-panel="llm">{_settings_section("LLM 连接", llm, ui.raw(llm_actions)).render()}</div>'
-        f'<div class="settings-panel" data-panel="nest">{_settings_section("蚁巢参数", agent).render()}</div>'
-        f'<div class="settings-panel" data-panel="integration">{_settings_section("集成", integrate, ui.raw(integ_actions)).render()}</div>'
-        f'<div class="settings-panel" data-panel="appearance">{_settings_section("外观", appear).render()}<input type="hidden" id="set-theme" value="{APPEARANCE["theme"]}"></div>'
-        f'<div class="settings-panel" data-panel="agent">{_settings_section("自定义 Agent", custom).render()}</div>'
-f'<div class="settings-panel" data-panel="advanced">{_settings_section("高级", adv).render()}</div>'
-        '</div>'
-    )
-    rail_html = '<div class="settings-rail" id="settings-rail">' + "".join(rail_parts) + '</div>'
-    return ui.div(cls="modal settings-modal", id="settings-modal", onclick="if(event.target===this) closeSettings()")[
-        ui.div(cls="modal-card settings-card", onclick="event.stopPropagation()")[
-            ui.div(cls="settings-header")[
-                ui.div()[
-                    ui.h2()["设置"],
-                    ui.raw('<p class="settings-sub">模型连接 · 蚁巢参数 · 集成 · 外观 · Agent 行为偏好</p>'),
-                ],
-                ui.raw('<button type="button" class="modal-close" onclick="closeSettings()" title="关闭">×</button>'),
-            ],
-            ui.div(cls="settings-body")[
-                ui.raw(rail_html + panels_html),
-            ],
-            ui.div(cls="settings-footer")[
-                ui.raw('<span class="verify-hint" id="verify-hint"></span>'),
-                ui.raw('<button type="button" class="btn ghost" onclick="closeSettings()">取消</button>'),
-                ui.raw('<button type="button" class="btn primary" onclick="onSaveSettings()">保存并校验</button>'),
-            ],
-        ],
-    ]
-
+    adv = ui.div(cls="settings-grid")[
+
+
+
+        _field("compact_threshold", "上下文压缩阈值", SETTINGS.get("compact_threshold", "0.85"), code=True,
+
+
+
+               hint="0.1~1.0；token 占比达到阈值即触发记忆压缩，默认 0.85"),
+
+
+
+        _field("worker_timeout", "工蚁超时（秒）", SETTINGS.get("worker_timeout", "300"), code=True,
+
+
+
+               hint="1~3600；单只工蚁的最长执行时间，超时被回收"),
+
+
+
+        ui.raw('<div class="field full"><div class="field-label">配置与数据</div><div class="path-list">'
+
+
+
+               + _paths_html() + '</div><div class="field-hint">直接改配置文件后重启应用生效</div></div>'),
+
+
+
+    ]
+
+
+
+
+
+
+
+    icons = {
+
+
+
+        "llm": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+
+
+
+        "nest": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+
+
+
+        "integration": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+
+
+
+        "appearance": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>',
+
+
+
+        "agent": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+
+
+
+        "advanced": '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+
+
+
+    }
+
+
+
+    rail_items = [
+
+
+
+        ("llm", "LLM 连接"),
+
+
+
+        ("nest", "蚁巢参数"),
+
+
+
+        ("integration", "集成"),
+
+
+
+        ("appearance", "外观"),
+
+
+
+        ("agent", "Agent 偏好"),
+
+
+
+        ("advanced", "高级"),
+
+
+
+    ]
+
+
+
+    rail_parts = []
+
+
+
+    for _i, (key, label) in enumerate(rail_items):
+
+
+
+        act = " active" if _i == 0 else ""
+
+
+
+        rail_parts.append(
+
+
+
+            f'<button type="button" class="rail-item{act}" data-panel="{key}" onclick="showSettingsPanel(\'{key}\')">'
+
+
+
+            f'{icons[key]}<span>{_h.escape(label)}</span></button>'
+
+
+
+        )
+
+
+
+    llm_actions = (
+
+
+
+        '<div class="section-actions">'
+
+
+
+        '<button type="button" class="btn ghost" onclick="onListModels()">检测模型列表</button>'
+
+
+
+        '<button type="button" class="btn ghost" onclick="onTestApi()">测试连接</button>'
+
+
+
+        '</div>'
+
+
+
+    )
+
+
+
+    integ_actions = (
+
+
+
+        '<div class="section-actions">'
+
+
+
+        '<button type="button" class="btn ghost" onclick="openSkillsModal()">管理 Skills</button>'
+
+
+
+        '<button type="button" class="btn ghost" onclick="openCfgDir(\'mcp\')">mcp.json 目录</button>'
+
+
+
+        '</div>'
+
+
+
+    )
+
+
+
+    panels_html = (
+
+
+
+        '<div class="settings-panels" id="settings-panels">'
+
+
+
+        f'<div class="settings-panel active" data-panel="llm">{_settings_section("LLM 连接", llm, ui.raw(llm_actions)).render()}</div>'
+
+
+
+        f'<div class="settings-panel" data-panel="nest">{_settings_section("蚁巢参数", agent).render()}</div>'
+
+
+
+        f'<div class="settings-panel" data-panel="integration">{_settings_section("集成", integrate, ui.raw(integ_actions)).render()}</div>'
+
+
+
+        f'<div class="settings-panel" data-panel="appearance">{_settings_section("外观", appear).render()}<input type="hidden" id="set-theme" value="{APPEARANCE["theme"]}"></div>'
+
+
+
+        f'<div class="settings-panel" data-panel="agent">{_settings_section("自定义 Agent", custom).render()}</div>'
+
+
+
+f'<div class="settings-panel" data-panel="advanced">{_settings_section("高级", adv).render()}</div>'
+
+
+
+        '</div>'
+
+
+
+    )
+
+
+
+    rail_html = '<div class="settings-rail" id="settings-rail">' + "".join(rail_parts) + '</div>'
+
+
+
+    return ui.div(cls="modal settings-modal", id="settings-modal", onclick="if(event.target===this) closeSettings()")[
+
+
+
+        ui.div(cls="modal-card settings-card", onclick="event.stopPropagation()")[
+
+
+
+            ui.div(cls="settings-header")[
+
+
+
+                ui.div()[
+
+
+
+                    ui.h2()["设置"],
+
+
+
+                    ui.raw('<p class="settings-sub">模型连接 · 蚁巢参数 · 集成 · 外观 · Agent 行为偏好</p>'),
+
+
+
+                ],
+
+
+
+                ui.raw('<button type="button" class="modal-close" onclick="closeSettings()" title="关闭">×</button>'),
+
+
+
+            ],
+
+
+
+            ui.div(cls="settings-body")[
+
+
+
+                ui.raw(rail_html + panels_html),
+
+
+
+            ],
+
+
+
+            ui.div(cls="settings-footer")[
+
+
+
+                ui.raw('<span class="verify-hint" id="verify-hint"></span>'),
+
+
+
+                ui.raw('<button type="button" class="btn ghost" onclick="closeSettings()">取消</button>'),
+
+
+
+                ui.raw('<button type="button" class="btn primary" onclick="onSaveSettings()">保存并校验</button>'),
+
+
+
+            ],
+
+
+
+        ],
+
+
+
+    ]
+
+
+
+
+
+
+
 # ------------------------------------------------------------------ 交互
 
 
@@ -7694,6 +8951,84 @@ def on_image_attach(data):
 
 
 
+
+
+
+
+
+@app.route("replay_task")
+
+
+
+
+
+
+
+
+def on_replay_task(data):
+
+
+
+
+
+
+
+
+    return core.route_replay_task(data or {})
+
+
+
+
+
+
+
+
+@app.route("checkpoints")
+
+
+
+
+
+
+
+
+def on_checkpoints(data):
+
+
+
+
+
+
+
+
+    return core.route_checkpoints(data or {})
+
+
+
+
+
+
+
+
+@app.route("resume_task")
+
+
+
+
+
+
+
+
+def on_resume_task(data):
+
+
+
+
+
+
+
+
+    return core.route_resume_task(data or {})
 
 
 
@@ -10480,27 +11815,90 @@ def on_open_release(data):
 
 
 
-@app.route("open_path")
-def on_open_path(data):
-    """打开白名单目录（config/ui/mcp），不接受任意路径。"""
-    key = (data or {}).get("key", "")
-    mapping = {
-        "config": os.path.dirname(bridge.CORE_CFG),
-        "ui": os.path.dirname(bridge.UI_CFG),
-        "mcp": _mcp_dir(),
-    }
-    d = mapping.get(key)
-    if not d or not os.path.isdir(d):
-        _push_log("warn", f"目录不存在：{d}")
-        _mark("log")
-        return
-    try:
-        os.startfile(d)
-    except Exception as e:
-        _push_log("warn", f"打开目录失败：{e}")
-        _mark("log")
-
-
+@app.route("open_path")
+
+
+
+def on_open_path(data):
+
+
+
+    """打开白名单目录（config/ui/mcp），不接受任意路径。"""
+
+
+
+    key = (data or {}).get("key", "")
+
+
+
+    mapping = {
+
+
+
+        "config": os.path.dirname(bridge.CORE_CFG),
+
+
+
+        "ui": os.path.dirname(bridge.UI_CFG),
+
+
+
+        "mcp": _mcp_dir(),
+
+
+
+    }
+
+
+
+    d = mapping.get(key)
+
+
+
+    if not d or not os.path.isdir(d):
+
+
+
+        _push_log("warn", f"目录不存在：{d}")
+
+
+
+        _mark("log")
+
+
+
+        return
+
+
+
+    try:
+
+
+
+        os.startfile(d)
+
+
+
+    except Exception as e:
+
+
+
+        _push_log("warn", f"打开目录失败：{e}")
+
+
+
+        _mark("log")
+
+
+
+
+
+
+
+
+
+
+
 @app.route("check_update")
 
 
@@ -12162,6 +13560,126 @@ app.body(
 
 
 
+                ui.div(cls="card panel plan-card")[
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    ui.h2()["执行计划"],
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    ui.raw('<button class="btn ghost btn-expand"'
+
+
+
+
+
+
+
+                            ' onclick="openTimelineModal()" title="展开事件时间线">轨迹</button>'),
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    _plan_panel(),
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    _perm_panel(),
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    _control_buttons(),
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                ],
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 ui.div(cls="card panel")[
 
 
@@ -12631,6 +14149,96 @@ app.body(
 
 
     ),
+
+
+
+
+
+    # v1.4：事件轨迹模态（路线图 §5 的 Task Replay）
+
+
+
+
+
+
+
+
+    ui.raw(
+
+
+
+
+
+        '<div id="timeline-modal" class="modal ops-modal"'
+
+
+        ' onclick="if(event.target===this) closeTimelineModal()">'
+
+
+
+
+
+
+
+
+        '<button type="button" class="modal-close global"'
+
+
+        ' onclick="closeTimelineModal()" title="关闭">x</button>'
+
+
+
+
+
+
+
+
+        '<div class="modal-card" onclick="event.stopPropagation()">'
+
+
+
+
+
+        '<h2>事件轨迹</h2>'
+
+
+
+
+
+        '<p class="muted" style="font-size:13px;margin:-8px 0 12px">'
+
+
+        '本回合发生的事：任务 / 计划 / 工蚁 / 工具 / 权限 / 检查点</p>'
+
+
+
+
+
+        '<div id="timeline-modal-list"><div class="muted">加载中</div></div>'
+
+
+
+
+
+
+
+
+
+
+
+        '</div></div>'
+
+
+
+
+
+
+
+
+    ),
+
+
+
 
 
 

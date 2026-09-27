@@ -1912,3 +1912,8 @@ body{
 .tl-permission .tl-glyph{color:#e0a44c}
 .tl-checkpoint .tl-glyph{color:var(--accent,#4cc9f0)}
 .tl-task .tl-event{color:#8fd6c0}
+.plan-card .card-h2,.plan-card h2{margin-bottom:6px}
+.plan-card #v14-controls{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
+.plan-card #v14-controls .btn{font-size:11.5px; padding:5px 10px}
+#timeline-modal-list{max-height:58vh; overflow-y:auto; padding:4px}
+#timeline-modal-list .tl-item{font-size:12px}

@@ -721,6 +721,9 @@ class AntNestCore:
         self._models_list = []   # /models 返回的模型 id 列表，用于精确判断 vision
         self._vision_supported = None  # 该模型是否支持图片：None=未校验(仅关键词), True/False
         self._lock = threading.Lock()
+        # 回合级互斥（v1.4）。必须在 send() 里**启动线程前** try-acquire，
+        # 详见 send() 的注释：busy 标志在新线程里设置存在 TOCTOU 窗口。
+        self._turn_lock = threading.Lock()
         self._ui_settings = {}
         self._current_task = ""
         self._stream_capture = {"reasoning": "", "content": ""}
@@ -1010,6 +1013,16 @@ class AntNestCore:
         except Exception:
             pass
         m._ui_patched = True
+        # v1.4：事件轨迹直通 UI（此前只能靠 stdout 正则抓取来推断发生了什么，
+        # 那是脆弱的副通道）。只传渲染需要的摘要字段，不把完整 data 丢给 UI。
+        try:
+            if getattr(self, "_events_subbed", False):
+                _events.unsubscribe(self._route_timeline)
+            _events.subscribe(self._route_timeline)
+            self._events_subbed = True
+        except Exception as e:
+            trace("S4", "warn", f"事件订阅失败（轨迹面板将为空）：{e}")
+        self._publish_perm()
         trace("S4", "info", "tool_executors.spawn_clone 已包装；UI 流式回调已注入")
 
     def set_ui_settings(self, settings):
@@ -1130,6 +1143,16 @@ class AntNestCore:
         if self.busy:
             self.emit("status", state="busy", detail="蚁后正在思考，请稍候")
             return False, "busy"
+        # v1.4 并发修复：必须在**启动线程之前**抢锁。
+        # 原来的 self.busy = True 是在新线程里设的（antnest_bridge.py:1083），
+        # 于是两次快速 send() 都能通过上面的检查、起两个 _turn 线程。
+        # 后果不只是两个任务并行：_turn 里会替换进程全局的 sys.stdout
+        # （:1163 保存 old_out，:1171 恢复），两个线程交错恢复就会把
+        # sys.stdout 永久指向一个已死的 StdoutTap —— 而那是**唯一**产生
+        # 工具调用 UI 事件的通道（_RE_TOOL_CALL），此后整个会话的工具事件全丢。
+        if not self._turn_lock.acquire(blocking=False):
+            self.emit("status", state="busy", detail="蚁后正在思考，请稍候")
+            return False, "busy"
         if self.mod:
             self._maybe_approve_self_modification(text)
         threading.Thread(
@@ -1225,21 +1248,27 @@ class AntNestCore:
                 # 工具调用/返回标记 → 驱动 UI 状态条（只解析输出行，不改工具执行逻辑）
                 m = _RE_TOOL_CALL.match(ln)
                 if m:
-                    args = ln.split(" ", 1)[1].strip()[:60] if " " in ln else ""
+                    args = ln.split(" ", 1)[1].strip()[:60] if " " in m.group(0) else ""
                     self.emit("tool", state="start", name=m.group(1), args=args)
                 elif _RE_TOOL_RET.search(ln):
                     self.emit("tool", state="end", name="")
                 self.log(classify_line(ln) or "sys", ln)
 
-            sys.stdout = StdoutTap(old_out, _route_line)
+            _my_tap = StdoutTap(old_out, _route_line)
+            sys.stdout = _my_tap
             try:
                 m.agent_single_loop()
             finally:
                 try:
-                    sys.stdout.flush()
+                    _my_tap.flush()
                 except Exception:
                     pass
-                sys.stdout = old_out
+                # 比较交换：只有当 stdout 仍是我装的这个 tap 时才恢复。
+                # 原来是无条件 `sys.stdout = old_out`——若期间别的代码换过 stdout
+                # （或另一次 turn 交错进出），这行会把别人的对象覆盖掉，
+                # 而且 old_out 可能本身就是一个已死的 StdoutTap。
+                if sys.stdout is _my_tap:
+                    sys.stdout = old_out
 
             cancelled = bool(getattr(m, "AGENT_CANCEL", False))
 
@@ -1324,6 +1353,10 @@ class AntNestCore:
             self.busy = False
             self.emit("turn", state="end")
             trace("S5", "info", "turn 结束")
+            try:
+                self._turn_lock.release()
+            except RuntimeError:
+                pass
 
     def stop(self):
         """强行停止当前蚁后操作（中断 LLM 流与工蚁）。"""
@@ -1393,6 +1426,54 @@ class AntNestCore:
         except Exception as e:
             trace("S5", "warn", f"重放失败：{e}")
             return f"（重放失败：{e}）"
+
+    def _route_timeline(self, rec) -> None:
+        """把事件记录转成 UI 事件（只带渲染需要的字段）。
+
+        **绝不把完整 data 丢给 UI**：事件里可能有命令全文、文件内容。
+        这里只传渲染函数用到的几个摘要键。
+        """
+        data = getattr(rec, "data", None) or {}
+        if not isinstance(data, dict):
+            data = {}
+        self.emit(
+            "event",
+            event=str(getattr(rec, "event", "") or ""),
+            ts=float(getattr(rec, "ts", 0.0) or 0.0),
+            worker_id=getattr(rec, "worker_id", None),
+            data={
+                k: data.get(k)
+                for k in ("tool", "status", "action", "title", "goal",
+                          "node", "duration_ms", "reason", "scope_name")
+                if data.get(k) not in (None, "", [])
+            },
+        )
+
+    def _publish_perm(self) -> None:
+        """把当前权限等级推给 UI（渲染 ✓/✗ 徽章）。"""
+        try:
+            engine = getattr(self.mod, "PERMISSION_ENGINE", None) if self.mod else None
+            if engine is None:
+                return
+            self.emit("perm", level=int(engine.policy.level))
+        except Exception as e:
+            trace("S6", "debug", f"权限等级推送失败：{e}")
+
+    # ---------------- v1.4：检查点 / 重放路由 ----------------
+
+    def route_replay_task(self, payload=None):
+        """返回本任务的事件时间线文本。"""
+        text = self.replay_task((payload or {}).get("task_id") or getattr(self, "_task_id", ""))
+        return {"ok": True, "text": text}
+
+    def route_checkpoints(self, payload=None):
+        rows = self.list_checkpoints((payload or {}).get("task_id") or getattr(self, "_task_id", ""))
+        return {"ok": True, "rows": rows}
+
+    def route_resume_task(self, payload=None):
+        tid = (payload or {}).get("task_id") or getattr(self, "_task_id", "")
+        ok, err = self.resume_task(tid)
+        return {"ok": ok, "error": err}
 
     def verify_async(self, settings, on_done=None):
         """后台校验 API 配置，结果通过事件 + 回调返回。不阻塞 UI。"""
