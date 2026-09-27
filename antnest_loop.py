@@ -4,12 +4,69 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 
 import antnest_log
 import antnest_registry
+import antnest_permissions
 _log = antnest_log.get_logger("loop")
+
+# 审计日志实例。
+#
+# 回归修复：v1.3.1 的模块拆分把审计调用写成了 `_audit()`，但 AntNest 壳
+# 从未 re-export `get_audit`（它只是 antnest_log 的一个函数）。于是每一行
+# `AntNest.get_audit` 都抛 AttributeError，被下面的宽 except 吞成
+# 「工具执行异常：module 'AntNest' has no attribute 'get_audit'」——
+# **所有工具调用全部失效**，Agent 一个动作也做不了。
+#
+# 该 bug 之所以长期没被发现：163 个测试里没有任何一个真正驱动过
+# agent_single_loop 的工具派发路径（和 Step 0 的工蚁依赖清单同类问题）。
+#
+# 这里直接用模块级 antnest_log.get_audit()，不依赖壳的 re-export——
+# 工具函数不该走那条脆弱的 _A() 路径。
+_audit = antnest_log.get_audit
+
+# 工具结果里被视为「未成功」的 status 词汇。
+# v1.3.1 只有三项；v1.4 权限闸门引入 denied（硬拒绝），若不登记会被记成 ok，
+# 让审计与统计把「被拒绝」当成「成功」。
+NON_OK_STATUS = ("error", "blocked", "approval_required", "denied")
+
+
+def _result_status(result: str) -> str:
+    """从工具结果 JSON 里取 status；解析不出则视为 ok。"""
+    try:
+        data = json.loads(result)
+    except Exception:
+        return "ok"
+    if isinstance(data, dict):
+        status = data.get("status")
+        if status in NON_OK_STATUS:
+            return str(status)
+    return "ok"
+
+
+def check_permission(name: str, args: dict) -> "antnest_permissions.Decision | None":
+    """派发前的权限闸门。返回 None 表示放行。
+
+    这里是**唯一**的工具级闸门（antnest_loop.py:151 是全仓库唯一的工具派发点），
+    queen 内部那几处自源码门禁作为第二道防线保留——两层都要在，因为
+    view_file/list_dir/... 也会间接调 spawn_clone。
+
+    fail-closed：未在注册表登记的工具一律 DENY。
+    """
+    spec = antnest_registry.get(name)
+    try:
+        engine = _A().PERMISSION_ENGINE
+    except Exception:
+        return None  # 引擎尚未就绪时不阻塞运行
+    if spec is None:
+        return antnest_permissions.decide(
+            antnest_permissions.PermLevel.EXECUTE,
+            level=engine.policy.level,
+            ask_above_level=engine.policy.ask_above_level,
+            unknown=True, tool=name, scope="unknown",
+        )
+    return engine.check_tool(name, args, required=spec.level, registered=True)
 
 
 def _A():
@@ -119,6 +176,7 @@ def agent_single_loop():
                 break
 
             _approval_request = None
+            _denied_request = None
             for tc in msg["tool_calls"]:
                 func = tc["function"]
                 name = func["name"]
@@ -153,20 +211,32 @@ def agent_single_loop():
                     _log.debug("")
 
                     _t0 = __import__("time").time()
-                    _A().get_audit().log_tool_call(name, args)
-                    result = _A().tool_executors[name](**args)
-                    _dur_ms = (__import__("time").time() - _t0) * 1000
+                    _audit().log_tool_call(name, args)
+
+                    # ====== 权限闸门（唯一工具级入口） ======
+                    _denied_by_perm = False
                     try:
-                        _status = "ok"
-                        _rd = json.loads(result)
-                        if _rd.get("status") in ("error", "blocked", "approval_required"):
-                            _status = _rd["status"]
-                    except Exception:
-                        _status = "ok"
-                    _A().get_audit().log_tool_result(name, _status, _dur_ms)
+                        _dec = check_permission(name, args)
+                    except Exception as _pe:
+                        _dec = None
+                        _log.warning(f"权限判定异常（按放行处理，请复查）：{_pe}")
+                    if _dec is not None and not _dec.allowed:
+                        _denied_by_perm = True
+                        result = _dec.to_tool_result()
+                        _audit().log_security_event(
+                            _dec.action.value, f"{name}: {_dec.reason}"
+                        )
+                        _log.warning(f"[权限] {name} → {_dec.action.value}：{_dec.reason}")
+                    else:
+                        result = _A().tool_executors[name](**args)
+
+                    _dur_ms = (__import__("time").time() - _t0) * 1000
+                    _status = _result_status(result)
+                    _audit().log_tool_result(name, _status, _dur_ms)
                     # spawn_clone 失败自动重试一次（仅 error；timeout 不重试，
-                    # 避免卡死命令翻倍耗时）
-                    if name == "spawn_clone":
+                    # 避免卡死命令翻倍耗时）。被权限拒绝的不重试——重试同一个
+                    # 被禁的操作毫无意义。
+                    if name == "spawn_clone" and not _denied_by_perm:
                         try:
                             d = json.loads(result)
                             if d.get("status") == "error":
@@ -209,16 +279,44 @@ def agent_single_loop():
                     "content": _A().clean_input(result),
                 })
 
-                # 自身源码修改必须先得到用户明确确认：结束当前工具批次，
-                # 避免模型在同一回合继续尝试其它写操作。
-                _approval = False
+                # 权限闸门的两种结局都需要停下来交给用户：
+                #   approval_required → 询问（已批准/已授权后可继续）
+                #   denied            → 硬拒绝，用户不介入就永远不该重试
+                # 都要结束当前工具批次，避免模型在同一回合继续尝试其它写操作。
+                _gate_status = ""
+                _gate_data: dict = {}
                 try:
-                    _approval_data = json.loads(result)
-                    _approval = _approval_data.get("status") == "approval_required"
+                    _parsed = json.loads(result)
+                    if isinstance(_parsed, dict):
+                        _gate_status = str(_parsed.get("status") or "")
+                        _gate_data = _parsed
                 except Exception:
                     pass
-                if _approval:
-                    _approval_request = {"path": _approval_data.get("path", "")}
+                if _gate_status == "approval_required":
+                    _approval_request = {
+                        "path": _gate_data.get("path", ""),
+                        "reason": _gate_data.get("reason", ""),
+                        "scope": _gate_data.get("scope", ""),
+                        "tool": name,
+                    }
+                    break_loop = True
+                    break
+                if _gate_status == "denied":
+                    _denied_request = {
+                        "reason": _gate_data.get("reason", ""),
+                        "scope": _gate_data.get("scope", ""),
+                        "tool": name,
+                        "level": _gate_data.get("level_label", ""),
+                    }
+                    # 被硬拒绝的调用不计入重复检测：否则连续 3 次相同的被拒调用
+                    # 会触发「自我反思换方法」，等于在教模型换一个方式去重试
+                    # 一个刚被明确禁止的操作。
+                    try:
+                        _rk = (name, json.dumps(args, ensure_ascii=False)[:120])
+                        while _rk in _recent_cmds:
+                            _recent_cmds.remove(_rk)
+                    except Exception:
+                        pass
                     break_loop = True
                     break
 
@@ -258,13 +356,46 @@ def agent_single_loop():
                 break
 
             if _approval_request:
-                _approval_path = _approval_request.get("path", "")
+                _scope = _approval_request.get("scope") or "self_source"
+                _target = _approval_request.get("path") or _approval_request.get("tool") or "该操作"
+                if _scope == "danger_command":
+                    _A().messages.append({
+                        "role": "assistant",
+                        "content": (
+                            f"我准备执行一个被标记为高危的命令：{_target}。"
+                            f"{_approval_request.get('reason', '')}\n"
+                            "请说明你为什么需要它；如果确实必要，请明确回复"
+                            "「同意执行该命令」后我再继续。"
+                        ),
+                    })
+                elif _scope == "self_source":
+                    _A().messages.append({
+                        "role": "assistant",
+                        "content": (
+                            "我准备修改正在运行的 AntNest 核心源码："
+                            f"`{_target}`。修改目的、影响范围和验证计划需要先向你说明，"
+                            "请明确回复‘同意修改自身源码’后我再继续。"
+                        ),
+                    })
+                else:
+                    _A().messages.append({
+                        "role": "assistant",
+                        "content": (
+                            f"我准备执行「{_target}」，但当前权限不足"
+                            f"（{_approval_request.get('reason', '')}）。\n"
+                            "请说明你为什么需要它；如果确实必要，请明确回复"
+                            "「同意该操作」后我再继续。"
+                        ),
+                    })
+
+            if _denied_request:
                 _A().messages.append({
                     "role": "assistant",
                     "content": (
-                        "我准备修改正在运行的 AntNest 核心源码："
-                        f"`{_approval_path}`。修改目的、影响范围和验证计划需要先向你说明，"
-                        "请明确回复‘同意修改自身源码’后我再继续。"
+                        f"操作已被安全策略拒绝：{_denied_request.get('tool', '')}"
+                        f"（{_denied_request.get('reason', '')}）。\n"
+                        "这不会通过换参数或换工具绕过。请改用权限范围内的做法，"
+                        "或向用户说明你需要提升权限。"
                     ),
                 })
 

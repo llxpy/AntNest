@@ -546,32 +546,33 @@ class PermissionEngine:
         tool: str,
         args: dict | None = None,
         *,
-        required: PermLevel | None = None,
+        required: PermLevel,
         registered: bool = True,
     ) -> Decision:
-        """工具级判定入口。
+        """工具级判定入口。`required` 是**必填**——不给默认值是刻意的：
+        曾经默认 READ，调用方一旦忘记传就会静默拿到 ALLOW，这正是 fail-closed
+        要防的方向。调用方应传 `antnest_registry.get(name).level`。
 
         **参数敏感判定优先于静态等级**（硬约束 C2）：一个 `write_file` 的静态
         等级是 L1，但如果 path 指向核心源码，结论必须是 ASK 而不是 ALLOW。
         """
         args = dict(args or {})
+        need = PermLevel.parse(required, PermLevel.READ)
         if not registered:
             return decide(
-                required if required is not None else PermLevel.EXECUTE,
+                need,
                 level=self.policy.level, ask_above_level=self.policy.ask_above_level,
                 unknown=True, tool=tool, scope="unknown",
             )
         # 1) 先跑参数敏感检查
         for key in ("path", "file", "target"):
-            if key in args and required in (None, PermLevel.WRITE) and _looks_like_write(tool):
+            if key in args and _looks_like_write(tool):
                 return self.check_write_path(str(args[key]), tool=tool)
         for key in ("command", "code"):
             if key in args and _looks_like_exec(tool):
                 return self.check_command(str(args[key]), tool=tool)
         # 2) 再退回静态等级
-        if required is None:
-            required = PermLevel.READ
-        return self.check_level(required, tool=tool, scope="tool", key=f"tool:{tool}")
+        return self.check_level(need, tool=tool, scope="tool", key=f"tool:{tool}")
 
     # ---------------- 内部 ----------------
 

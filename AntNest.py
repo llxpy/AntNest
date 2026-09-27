@@ -88,6 +88,15 @@ from antnest_llm import _build_request_data, display_usage
 from antnest_loop import _detect_malformed_tool_call, agent_single_loop, human_loop
 from antnest_toolforge import register_tool, list_tools, get_tool_source, remove_tool
 
+# 结构化日志 / 审计（v1.4 补齐 re-export）
+#
+# 回归：v1.3.1 的模块拆分把 antnest_loop 里的审计调用写成 `_A().get_audit()`，
+# 但本壳从未 re-export `get_audit`，导致每一次工具调用都抛 AttributeError 并被
+# 宽 except 吞成「工具执行异常」——**所有工具全部失效**。已同时把 antnest_loop
+# 改为直接用模块级 antnest_log.get_audit()（工具函数不该走脆弱的 _A() 路径）。
+# 这里补上 re-export 以维持 `AntNest.get_audit` 这个外部契约。
+from antnest_log import get_audit, get_logger, set_bridge_emit, setup as setup_logging
+
 # ====================== 工具 Schema 与注册表 ======================
 # 工具 Schema 直接来自 antnest_schemas（import * 已引入全部 schema 变量）
 

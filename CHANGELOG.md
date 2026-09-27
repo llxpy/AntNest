@@ -260,6 +260,108 @@ JSON 调用绕过压缩流程。所以宁可放宽。
 
 ---
 
+### Step 3 — 权限闸门接线（并修掉一个致命回归）
+
+#### 解决的问题
+
+**1. 修复一个致命回归：v1.3.1 基线上「所有工具调用全部失效」。**
+
+`antnest_loop` 写的是 `_A().get_audit().log_tool_call(...)`，但 `AntNest` 壳**从未
+re-export `get_audit`**（它只是 `antnest_log` 的一个函数）。于是每一次工具派发都
+抛 `AttributeError`，被同一 `try` 块里的宽 `except Exception` 吞成：
+
+```
+工具执行异常：module 'AntNest' has no attribute 'get_audit'
+```
+
+**结果：Agent 一个动作也做不了。** 这个 bug 随 v1.3.1 的模块拆分引入
+（`git log -S get_audit` 确认 `get_audit` 在拆分前根本不存在）。
+
+之所以长期没被发现：163 个测试里**没有任何一个真正驱动过 `agent_single_loop` 的
+工具派发路径**——和 Step 0 的工蚁依赖清单是同一类问题（关键路径无测试覆盖）。
+
+修法（两处，缺一不可）：
+- `antnest_loop` 改用模块级 `antnest_log.get_audit()`。工具函数不该走 `_A()` 那条
+  脆弱的壳属性查找路径。
+- `AntNest.py` 补上 `get_audit` / `get_logger` / `set_bridge_emit` 的 re-export，
+  维持 `AntNest.get_audit` 这个外部契约。
+
+**2. 权限闸门接入 `agent_single_loop`（全仓库唯一工具派发点）。**
+
+新增 `check_permission(name, args)`，在 `tool_executors[name](**args)` 之前判定：
+
+- 未在注册表登记的工具 → **fail-closed DENY**（新增工具忘登记不会静默放行）
+- 参数敏感判定优先于静态等级（硬约束 C2）
+- DENY/ASK 都写 `audit.log` 的 `log_security_event`（该方法自 v1.3.1 起就写好了
+  但**零调用点**，本步接上）
+
+**3. 替换 queen 内部 5 处手写门禁**，统一走 `PermissionEngine`：
+
+| 位置 | 原实现 | 现实现 |
+|------|--------|--------|
+| `spawn_clone` | `_command_self_source_target` + `_self_modification_gate` + admin `input()` | `check_command` |
+| `write_file` / `search_replace` | `_self_modification_gate` | `check_write_path` |
+| `run_cli` / `run_python` | `_command_self_source_target` + `_check_danger_command` | `check_command` |
+
+**4. 修掉 `ALLOW_ALL_CLI` 声明但零读取导致的 UI 冻结。**
+
+`ALLOW_ALL_CLI` 被 `antnest_bridge.py:809` 设为 `True`（注释写「UI 无法做终端确认」），
+但**全仓库无任何读取点**。实际后果：管理员模式下每条危险命令都会走
+`admin_utils.get_user_confirmation()` → **阻塞式 `input()`**。而 UI 的 `_turn` 跑在
+本进程的 `threading.Thread` 里，用户没有任何界面能应答 → **整个 Agent 冻结**。
+
+现在统一走对话式授权：返回 `approval_required` → `antnest_loop` 结束本批次并在聊天里
+说明 → 用户下一条消息授权。`input()` 只在「终端 + 管理员 + `ALLOW_ALL_CLI` + stdin 可用」
+四个条件同时满足时才走（CLI 场景保留更好的体验）。
+
+**5. `denied` 登记进非 ok 词汇表。**
+
+`antnest_loop` 之前只把 `error`/`blocked`/`approval_required` 当作失败。新增的
+`denied` 若不登记，审计与统计会把「被拒绝」记成「成功」。已提取
+`NON_OK_STATUS` 常量 + `_result_status()` 辅助函数。
+
+**6. 被拒调用不再触发「换方法重试」的自我反思提示。**
+
+`_DUP_CALL_LIMIT=3` 原本会对连续 3 次相同的**被拒**调用注入《自我反思》——
+等于在教模型换一个方式去重试一个刚被明确禁止的操作。现在被拒的调用会从重复计数里
+移除。
+
+**7. 收紧 `check_tool` 的 API。**
+
+`required` 参数原本默认 `PermLevel.READ`。调用方一旦忘记传，就会静默拿到 ALLOW——
+这正是 fail-closed 要防的方向。现改为**必填**。
+
+#### 测试
+
+`tests/test_permission_gate.py`（17 用例）。用假 LLM（`mock.patch.object(AntNest,
+'llm_chat_stream', ...)`）驱动**真实的** `agent_single_loop`，走真实权限判定、真实
+工具结果回灌、真实 break_loop。覆盖：
+
+- 写自身源码的 `write_file` / `search_replace` **执行器未被调用**
+- `spawn_clone("rm -rf /")`、`spawn_clone("echo x > antnest_loop.py")` 均被拦下
+- 只读命令（`cat antnest_loop.py`）**不被误拦**（过度拦截会让 Agent 无法工作）
+- 未登记工具 fail-closed
+- 拒绝后每个 `tool_call` 仍有 `tool` 响应（否则 API 会 400）
+- 拒绝后循环立即终止（iterations == 1）
+- 被拒调用不触发自我反思提示
+- `spawn_clone` 在 UI 模式下**绝不调用 `input()`**（mock 断言）
+
+> 写这个测试的过程直接暴露了上面第 1 条的致命回归——如果只做 Step 1/2 而不真正
+> 驱动一次循环，这个 bug 会一路带到发布。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **UI 无处呈现权限** | 用户看不到当前 level、看不到 ✓/✗ 徽章；越权询问也只是聊天里的一段文字 | **Step 8** |
+| 对话式授权只认「同意修改自身源码」 | `_maybe_approve_self_modification` 的正则只匹配自源码场景，危险命令/越权的授权走不通 | Step 8 |
+| 审计与事件未分离 | 工具事件仍写 `audit.log`（Step 4 会拆成 events/ + audit 两份） | Step 4 |
+| 权限判定在工具内部也会跑一次 | `view_file` → `spawn_clone` 会二次判定。冗余但无害（两层防线） | 保留 |
+| 授权存储在内存 | 进程重启后一次性/任务级授权全部失效 | Step 6 随 checkpoint 一起考虑 |
+| **权限不是 Sandbox** | 危险模式只是提示不是控制 | 遗留 R4（v1.5） |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

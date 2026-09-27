@@ -144,15 +144,23 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
             ),
         }, ensure_ascii=False)
 
-    # 运行时门禁：即使模型绕过 write_file/search_replace，直接拼 shell/Python 写核心源码也必须询问。
-    command_target = _A()._command_self_source_target(command)
-    if command_target is not None:
-        gate = _A()._self_modification_gate(command_target)
-        if gate:
-            return gate
-
-    # ====== 管理员模式：危险命令确认 ======
-    if _A()._admin_info["is_admin"]:
+    # ====== 权限闸门（v1.4） ======
+    #
+    # 参数敏感判定：即使模型绕过 write_file/search_replace，直接拼 shell/Python
+    # 写核心源码，或执行命中高危模式的命令，都必须先过权限引擎。
+    # 旧实现是 _command_self_source_target + _self_modification_gate 两步，现在
+    # 统一由 PermissionEngine.check_command 承担（危险模式表也已合并到一处）。
+    _dec = _A().PERMISSION_ENGINE.check_command(command, tool="spawn_clone")
+    if _dec.allowed:
+        pass
+    elif _dec.blocked:
+        return _dec.to_tool_result(
+            f"命令已被安全策略拒绝（{_dec.reason}）。"
+            "如需删除文件请改用 write_file/search_replace，或明确指定项目内的相对路径。"
+        )
+    elif _A()._admin_info["is_admin"] and _A().ALLOW_ALL_CLI and sys.stdin is not None:
+        # 终端 + 管理员 + 允许交互：保留 input() 确认（CLI 场景体验更好）。
+        # 桌面 UI 不满足 ALLOW_ALL_CLI 且 stdin 不可靠，走下面的对话式授权。
         analysis = admin_utils.analyze_command(command)
         if analysis["is_dangerous"] and analysis["confirmation_required"]:
             confirmed, user_input = admin_utils.get_user_confirmation(command)
@@ -162,6 +170,14 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                     "error": f"用户取消执行危险命令：{analysis['description']}",
                     "user_input": user_input
                 }, ensure_ascii=False)
+        else:
+            return _dec.to_tool_result()
+    else:
+        # 对话式授权：返回 approval_required，antnest_loop 结束本批次并在聊天里
+        # 向用户说明，用户下一条消息授权。**绝不在这里调用 input()**——旧实现在
+        # 管理员模式下对每条危险命令阻塞式 input()，而 UI 的 _turn 跑在本进程
+        # 线程里，用户没有任何界面能应答，会冻结整个 Agent。
+        return _dec.to_tool_result()
 
     # ====== 任务状态管理 ======
     from task_manager import get_task_manager, TaskStatus
@@ -530,13 +546,31 @@ def grep_files(
     return _unwrap_worker_json(raw)
 
 
+def _check_write_permission(p, tool: str) -> str:
+    """写路径的统一门禁。返回空串表示放行，否则返回工具结果 JSON。
+
+    v1.4 起由 PermissionEngine.check_write_path 承担：路径落在 AntNest 核心源码上
+    时返回 approval_required（需用户明确同意），越界路径仍由 code_tools.resolve_path
+    的 SafetyError 负责（那是无条件硬拦截，不受权限等级影响）。
+    """
+    _dec = _A().PERMISSION_ENGINE.check_write_path(str(p), tool=tool)
+    if _dec.allowed:
+        return ""
+    if _dec.blocked:
+        return _dec.to_tool_result()
+    # ASK：登记 pending 记录，让 bridge 的对话式授权能识别（沿用既有协议）
+    if _dec.scope == "self_source":
+        _A()._self_modification_gate(p)
+    return _dec.to_tool_result()
+
+
 def write_file(path: str, content: str) -> str:
     """派工蚁写入文件（蚁后自己不写）。"""
     try:
         p = _resolve_path(path)
     except ValueError as e:
         return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
-    gate = _A()._self_modification_gate(p)
+    gate = _check_write_permission(p, "write_file")
     if gate:
         return gate
     py = ct.build_write_file_script(p, content or "")
@@ -555,7 +589,7 @@ def search_replace(
         p = _resolve_path(path)
     except ValueError as e:
         return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
-    gate = _A()._self_modification_gate(p)
+    gate = _check_write_permission(p, "search_replace")
     if gate:
         return gate
     py = ct.build_search_replace_script(p, old_string, new_string, replace_all)
@@ -579,17 +613,15 @@ def _check_danger_command(command: str):
 
 def run_cli(command: str, timeout: int = 300) -> str:
     """工蚁模式下直接执行命令（UTF-8 环境 + 脚本文件传递）。蚁后模式不应调用此函数。"""
-    command_target = _A()._command_self_source_target(command)
-    if command_target is not None:
-        gate = _A()._self_modification_gate(command_target)
-        if gate:
-            return gate
     danger, why = _check_danger_command(command)
     if danger:
         return (
             f"命令已被安全拦截（{why}）。如需删除文件请改用 write_file/search_replace，"
             f"或明确指定项目内的相对路径。"
         )
+    _dec = _A().PERMISSION_ENGINE.check_command(command, tool="run_cli")
+    if not _dec.allowed:
+        return _dec.to_tool_result()
     scratch = None
     try:
         scratch = tempfile.mkdtemp(prefix="antnest_cli_")
@@ -627,11 +659,9 @@ def run_python(code: str, timeout: int = 120) -> str:
     代码写入临时 .py 文件后用当前解释器执行，stdout/stderr 按 UTF-8 捕获。
     与 _A().run_cli 的区别：不经过 PowerShell/bash，中文与引号完整保留。
     """
-    code_target = _A()._command_self_source_target(code)
-    if code_target is not None:
-        gate = _A()._self_modification_gate(code_target)
-        if gate:
-            return gate
+    _dec = _A().PERMISSION_ENGINE.check_command(code, tool="run_python")
+    if not _dec.allowed:
+        return _dec.to_tool_result()
     scratch = None
     try:
         scratch = tempfile.mkdtemp(prefix="antnest_py_")
