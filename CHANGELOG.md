@@ -539,6 +539,96 @@ Plan 面板在多数真实任务里是空的，整个特性等于没做。
 
 ---
 
+### Step 6 — Task Checkpoint / Resume（真正的任务检查点）
+
+#### 解决的问题
+
+v1.3.1 只有 `antnest_runtime_state.record_stop`：用户按停止时存一份「决策摘要 +
+证据 + 下一步」的文本，恢复时靠正则从 `messages` 里找最后一次 user 消息当查询。
+那不是检查点——它**不知道做过什么、不知道计划走到哪、不知道哪些工蚁在跑**。
+
+本步提供真检查点：计划快照 + 消息尾部 + 事件水位 + 统计，恢复时能明确回答
+路线图 §6 的三问。
+
+#### 核心是 `rehydrate()`，不是切片
+
+朴素地 `messages[-12:]` 会产出**被 API 拒绝**的消息列表，且既有回填逻辑救不回来：
+
+| 断裂 | 后果 |
+|------|------|
+| 切点落在工具批次中间 | 列表**以 `role:"tool"` 开头**，父 assistant 已丢失 → OpenAI 兼容端点直接 400 |
+| `antnest_loop` 的回填只扫**最后一个** assistant、补**缺失**响应、然后 `break` | 无法修复开头的孤儿 tool 消息 |
+| 12 条几乎不含 `messages[0]` | **system prompt 丢失** —— NEST.md / hints / ENV_INFO / 模型能力 / 深度规则 / 工具契约全没 |
+| `llm_chat_stream` 挂 `reasoning_content` | 切片落盘即**明文持久化思维链**，与既有约定冲突 |
+
+失败方式最恶劣：`ApiError` 被 `antnest_loop` 的宽 `except` 吞掉后 `break`，
+整轮没有任何 assistant 消息，UI 什么也收不到——「能恢复」静默失效。
+
+所以恢复走四步 `rehydrate()`：
+
+1. 前置**重新构建的** system 消息（读壳上当前的 `messages[0]`，丢弃切片里的旧版）
+2. 丢弃开头的孤儿 `role:"tool"` 消息，直到遇到 user 或不带 tool_calls 的 assistant
+3. 为残留的每个 `assistant(tool_calls)` 在该批次内合成响应，**遍历全部批次**
+   （不像 loop 里的回填只扫最后一个）
+4. 剥离 `reasoning_content` / `thinking` 等思维链字段
+
+#### 快照时机
+
+**必须在工具批次闭合的静止点取**。设计初稿说「工蚁归巢时快照」是错的——那时
+`agent_single_loop` 正在迭代 `msg["tool_calls"]`，下一步还会往 `messages` 追加，
+快照是撕裂的。
+
+实际触发点：
+
+| 时机 | reason |
+|------|--------|
+| 每个回合边界（while 顶部） | `round_boundary` |
+| 工具批次正常闭合 | `batch_closed` |
+| 等待用户授权 / 被硬拒绝 | `awaiting_approval` / `denied` |
+| 用户按停止（bridge.stop） | `user_stop` |
+| 达到最大轮次 | `max_rounds`（经 batch_closed 覆盖） |
+
+#### 存储
+
+`.antnest/checkpoints/<task_id>/<seq>.json`，原子写（temp + `os.replace`），
+每任务 20 个 + 全局最近 5 个任务。`ANT_CHECKPOINT=0` 可关闭。
+
+#### 新增 bridge 接口
+
+- `list_checkpoints(task_id)` —— 列出检查点
+- `resume_task(task_id)` —— 还原 messages + 计划，向 UI 发 `chat` 与 `plan`
+- `replay_task(task_id)` —— 返回事件时间线文本
+
+#### 自己的测试抓出的 2 个 bug
+
+| Bug | 后果 |
+|-----|------|
+| `list()` 靠文件名字符串排序 | seq 超过 999 时 `"1000" < "999"`，**时间顺序错乱**。改为按数值排序 |
+| 尾部里的旧 system 消息没被丢弃 | 恢复后出现**两条 system**，且旧的那份带着过期的工具契约 |
+
+另有一条测试直接构造「工具批次被切断」的尾部，断言恢复结果能通过
+`api_compat.sanitize_messages_for_api`（deepseek / kimi / openai_compat 三种 profile）。
+
+#### 测试
+
+- `tests/test_checkpoint.py`（54 用例）：思维链剥离、rehydrate 四步、
+  结构自检、存储/轮转/原子写、恢复提示、事件接线。
+- `tests/test_checkpoint_wiring.py`（16 用例）：用假 LLM 驱动真实回合，验证
+  检查点真的被触发、真的带计划、恢复结果 API 安全；含 bridge 三个新接口。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **UI 无入口** | `list_checkpoints` / `resume_task` / `replay_task` 都有了，但 `prototype_antnest.py` 没有按钮 | **Step 8** |
+| **恢复是手动的** | 进程重启后不会自动恢复，用户得显式触发 | Step 8 |
+| **与 `stop_snapshot` 双源** | 同一语义两处持久化。`record_stop` 保留不动（已被测试覆盖），checkpoint 是超集 | 遗留 R5（v1.5 统一 `_runtime_prompt_context`） |
+| 计划不进系统提示 | `Plan.to_prompt()` 已实现但没接进 `_with_retrieved_memory`——恢复后模型看不到计划 | Step 8 一起接 |
+| 授权不持久 | 一次性/任务级授权只存内存，重启后失效 | 已知取舍 |
+| 每回合都存检查点 | 长任务会写不少 JSON。已限 20 个/任务 + 5 个任务，但没做「无变化不存」 | 后续优化 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

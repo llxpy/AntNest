@@ -36,6 +36,36 @@ _ev = antnest_events
 # 让审计与统计把「被拒绝」当成「成功」。
 NON_OK_STATUS = ("error", "blocked", "approval_required", "denied")
 
+# 统计本回合已发生的工具调用数，供检查点附带
+_tool_call_counter = 0
+
+
+def _save_checkpoint(reason: str, rounds: int = 0) -> None:
+    """在静止点保存任务检查点。**永不抛异常。**
+
+    快照必须在工具批次闭合后取（见调用点注释），否则 messages 是撕裂的。
+    plan 走 antnest_plan.snapshot()，失败时留空——检查点是增强项，不该拖垮主流程。
+    """
+    global _tool_call_counter
+    try:
+        import antnest_checkpoint as _ck
+
+        _plan: dict = {}
+        try:
+            import antnest_plan as _pl
+            _plan = _pl.snapshot()
+        except Exception:
+            _plan = {}
+        _ck.save(
+            reason,
+            goal=str(_plan.get("goal") or "")[:500],
+            messages=list(_A().messages),
+            plan=_plan,
+            stats={"tool_calls": _tool_call_counter, "rounds": rounds},
+        )
+    except Exception as e:  # pragma: no cover - 检查点是增强项
+        _log.debug(f"检查点保存跳过：{e}")
+
 
 def _result_status(result: str) -> str:
     """从工具结果 JSON 里取 status；解析不出则视为 ok。"""
@@ -133,6 +163,12 @@ def agent_single_loop():
                 ),
             })
             break
+        # ====== 检查点：静止点快照 ======
+        # 必须放在 while 顶部（工具批次已闭合），不能从工具内部调——
+        # 那时 agent_single_loop 正在迭代 msg["tool_calls"]，下一步还会往
+        # messages 追加，快照是撕裂的。
+        if _rounds > 1:
+            _save_checkpoint("round_boundary", _rounds)
         _ev.emit(_ev.Event.LOOP_ROUND, round=_rounds, limit=_max_rounds)
         if _A().AGENT_CANCEL:
             _log.info("用户强行停止")
@@ -220,6 +256,8 @@ def agent_single_loop():
                     _log.debug("")
 
                     _t0 = __import__("time").time()
+                    global _tool_call_counter
+                    _tool_call_counter += 1
                     _ev.tool_call(name, args)
 
                     # ====== 权限闸门（唯一工具级入口） ======
@@ -353,6 +391,10 @@ def agent_single_loop():
                         _A().messages[i] = _A()._trim_tool_content(m)
                     _A().messages.append({"role": "user", "content": _A().COMPACT_PROMPT})
 
+            if not _approval_request and not _denied_request:
+                # 常规收尾也存一次，覆盖「工蚁归巢后 / 计划更新后」等进度节点
+                _save_checkpoint("batch_closed", _rounds)
+
             # 兜底：确保每个 tool_call 都有 tool 响应，否则下一轮 LLM 调用会被
             # API 以「insufficient tool messages」400 拒绝（中断/重复检测提前 break 时会缺）
             for _i in range(len(_A().messages) - 1, -1, -1):
@@ -373,6 +415,12 @@ def agent_single_loop():
                             "content": "（工具调用被中断，未执行）",
                         })
                 break
+
+            # 工具批次已闭合：这是保存检查点的安全静止点
+            if _approval_request or _denied_request:
+                _save_checkpoint(
+                    "awaiting_approval" if _approval_request else "denied", _rounds
+                )
 
             if _approval_request:
                 _scope = _approval_request.get("scope") or "self_source"

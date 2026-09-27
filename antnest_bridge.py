@@ -1332,6 +1332,21 @@ class AntNestCore:
         if self.mod:
             self.mod.agent_cancel()
         self.log("warn", "用户强行停止；正在保存可恢复执行快照")
+        # v1.4 检查点：用户停止是最需要恢复的时刻，plan + messages + 事件水位
+        try:
+            import antnest_checkpoint as _ck
+            import antnest_plan as _pl
+            _snap = _pl.snapshot()
+            _ck.save(
+                "user_stop",
+                goal=str(self._current_task)[:500],
+                messages=list(self.mod.messages) if self.mod else [],
+                plan=_snap,
+                task_id=getattr(self, "_task_id", ""),
+                stats=_ck.collect_stats(),
+            )
+        except Exception as e:
+            trace("S5", "warn", f"检查点保存失败：{e}")
         _events.emit(
             _events.Event.TASK_PAUSED, task_id=getattr(self, "_task_id", ""),
             task=str(self._current_task)[:200],
@@ -1340,6 +1355,45 @@ class AntNestCore:
         return True, "stopping"
 
     # ---------------- 其它
+    def list_checkpoints(self, task_id=""):
+        """列出某个任务（或全部）的检查点，供 UI 展示与手动恢复。"""
+        try:
+            import antnest_checkpoint as _ck
+            store = _ck.get_store()
+            tids = [task_id] if task_id else store.tasks()
+            return [c.to_dict() for tid in tids for c in store.list(tid)]
+        except Exception as e:
+            trace("S5", "warn", f"检查点列表失败：{e}")
+            return []
+
+    def resume_task(self, task_id):
+        """从检查点恢复一个任务：还原 messages + 计划，并回灌给 UI。"""
+        try:
+            import antnest_checkpoint as _ck
+            import antnest_plan as _pl
+            messages, ckpt = _ck.resume(task_id)
+            if ckpt is None:
+                return False, f"任务 {task_id} 没有检查点"
+            self.mod.messages = messages
+            self._base_system = messages[0]["content"] if messages else self._base_system
+            self.emit("chat", role="queen", text=ckpt.resume_prompt())
+            self.emit("plan", **_pl.snapshot())
+            self.log("sys", f"已从检查点 #{ckpt.seq} 恢复（{ckpt.reason}）")
+            return True, ""
+        except Exception as e:
+            trace("S5", "error", f"恢复失败：{e}\n{traceback.format_exc()}")
+            return False, str(e)
+
+    def replay_task(self, task_id=""):
+        """返回某任务的事件时间线（人读文本）。"""
+        try:
+            import antnest_checkpoint as _ck
+            import antnest_events as _ev
+            return _ev.get_log().replay(task_id or getattr(self, "_task_id", ""))
+        except Exception as e:
+            trace("S5", "warn", f"重放失败：{e}")
+            return f"（重放失败：{e}）"
+
     def verify_async(self, settings, on_done=None):
         """后台校验 API 配置，结果通过事件 + 回调返回。不阻塞 UI。"""
         def _run():
