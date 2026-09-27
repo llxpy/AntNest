@@ -19,6 +19,7 @@ import code_tools as ct
 import antnest_clone_worker
 import antnest_inventory
 import antnest_permissions
+import antnest_registry
 import admin_utils
 import antnest_log
 _qlog = antnest_log.get_logger("queen")
@@ -30,26 +31,15 @@ def _A():
 
 
 def get_queen_tools(compact_panic: bool = False) -> list:
-    """蚁后可用工具列表（含可选 MCP）。"""
-    if compact_panic:
-        base = [_A().spawn_clone_schema, _A().memory_hints_schema]
-    else:
-        base = [
-            _A().spawn_clone_schema,
-            _A().get_task_status_schema,
-            _A().view_file_schema,
-            _A().list_dir_schema,
-            _A().grep_files_schema,
-            _A().write_file_schema,
-            _A().search_replace_schema,
-            _A().web_fetch_schema,
-            _A().register_tool_schema,
-            _A().list_tools_schema,
-            _A().get_tool_source_schema,
-        ]
-    if _A().MCP_ENABLED and _A().MCP_HUB is not None:
-        base.extend([_A().mcp_call_schema, _A().mcp_list_tools_schema])
-    return base
+    """蚁后可用工具列表。
+
+    v1.4 起由 antnest_registry.TOOL_SPECS 派生，取代原先手写的 11+2+2 项列表。
+    MCP 可用性仍是运行时判断（MCP_ENABLED + MCP_HUB 已加载）。
+    """
+    mcp_on = bool(_A().MCP_ENABLED and _A().MCP_HUB is not None)
+    return antnest_registry.visible_schemas(
+        _A(), compact_panic=compact_panic, mcp_on=mcp_on
+    )
 
 
 def mcp_call(server: str, tool: str, arguments: str = "{}") -> str:

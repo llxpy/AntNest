@@ -47,6 +47,8 @@ import antnest_memory as _memory
 import antnest_llm as _llm
 import antnest_loop as _loop
 import antnest_toolforge as _toolforge
+# 工具注册表（v1.4）：工具名/等级/可见性的唯一真源，其余位置全部派生
+import antnest_registry
 
 # session 模块（壳内 session 封装使用）
 import antnest_session as session_mod
@@ -87,27 +89,13 @@ from antnest_loop import _detect_malformed_tool_call, agent_single_loop, human_l
 from antnest_toolforge import register_tool, list_tools, get_tool_source, remove_tool
 
 # ====================== 工具 Schema 与注册表 ======================
-# 工具 Schema 直接来自 antnest_schemas（import * 已引入 12 个 schema 变量）
+# 工具 Schema 直接来自 antnest_schemas（import * 已引入全部 schema 变量）
 
-# 工具执行器注册表（桥接 dispatch 用；函数本体来自子模块）
-tool_executors = {
-    "spawn_clone": spawn_clone,
-    "get_task_status": get_task_status,
-    "view_file": view_file,
-    "list_dir": list_dir,
-    "grep_files": grep_files,
-    "write_file": write_file,
-    "search_replace": search_replace,
-    "run_cli": run_cli,
-    "run_python": run_python,
-    "web_fetch": web_fetch,
-    "leave_memory_hints": leave_memory_hints,
-    "mcp_call": mcp_call,
-    "register_tool": register_tool,
-    "list_tools": list_tools,
-    "get_tool_source": get_tool_source,
-    "mcp_list_tools": mcp_list_tools,
-}
+# 工具执行器注册表。**由 antnest_registry 从 TOOL_SPECS 派生**，不再手写字典。
+#
+# 注意：这份 dict 本身仍是可变的——antnest_bridge._patch_tools 会在 import 之后把
+# spawn_clone 换成带 UI 事件的包装版本。不变的是 antnest_registry.TOOL_SPECS。
+tool_executors = antnest_registry.build_executors(sys.modules[__name__])
 
 # ====================== Session 管理封装 ======================
 def get_session_file():

@@ -175,6 +175,91 @@ antnest_config.py:47   run_if_clone_mode() → sys.exit(0)
 
 ---
 
+### Step 2 — Tool Registry（工具名单点维护）
+
+#### 解决的问题
+
+工具名此前被手写 4 遍，其中**两处已经腐烂**：
+
+| 位置 | 覆盖 | v1.3.1 状态 |
+|------|------|------------|
+| `AntNest.py` tool_executors dict | 16 | 真源，但不含 level / exposed 元信息 |
+| `antnest_queen.get_queen_tools` | 11+2+2 | 手工同步 |
+| `antnest_loop._detect_malformed_tool_call` 正则 | 13 | **已过期**（缺 register_tool / list_tools / get_tool_source） |
+| `prompts/queen_system.md` 散文列表 | 13 | **已过期**（同上） |
+
+任何 allowlist 或权限声明挂在这些地方，只会跟着一起烂。新增 `antnest_registry.py`，
+`TOOL_SPECS` 成为唯一硬编码清单，其余全部派生：
+
+| 派生函数 | 取代 |
+|----------|------|
+| `build_executors(ns)` | `AntNest.py` 的 dict 字面量 |
+| `visible_schemas(ns, ...)` | `get_queen_tools` 的手写列表 |
+| `malformed_call_regex()` | `antnest_loop` 的手写 alternation |
+| `prompt_catalog()` / `prompt_catalog_lines()` | `queen_system.md` 的散文清单 |
+
+`ToolSpec` 除名字外还携带 `level`（所需权限等级）、`exposed` / `worker_only` /
+`panic_only`（可见性）、`mutating`（是否改状态，供 Plan 节点归属推断用）——这些字段
+是 Step 3 权限闸门与 Step 5 Plan DAG 的输入。
+
+#### 三个刻意做出的设计决定
+
+**1. 畸形调用正则覆盖 `TOOL_SPECS` 全集（16 个），而不是 exposed 子集（11 个）。**
+
+旧手写正则是 13 个，比 exposed 还多——因为它顺带覆盖了 `run_cli` / `run_python` /
+`leave_memory_hints` / `mcp_call` / `mcp_list_tools`。其中 `leave_memory_hints` 尤其
+关键：它只在 `COMPACT_PANIC` 下暴露，若按 exposed 收窄，模型就能用纯文本伪造它的
+JSON 调用绕过压缩流程。所以宁可放宽。
+
+**2. MCP 建模成两个普通 spec，不做「按服务器动态生成条目」。**
+
+设计初稿曾打算把每个 MCP 工具做成动态项追加进 `visible_specs`。**那是错的**：
+`mcp_call(server, tool, args)` 是单一派发器，`tool_executors` 里只有 `"mcp_call"`
+一个键。追加动态项会产生**有 schema 没执行器**的工具，而 Step 3 的 fail-closed 权限
+会把它们**全部拒绝**——MCP 就从「能用」变成「全瘫」。已加反向不变量测试
+`test_exposed_subset_of_executors` 守住这条。
+
+**3. 不做 `{tool_catalog}` 运行时注入，改用 prompt 一致性测试。**
+
+设计初稿想把工具列表做成 SYSTEM_PROMPT 占位符。但 `SYSTEM_PROMPT.format(...)` 在
+**6 处**被调用（`AntNest.py`×2、`antnest_bridge`、`antnest_memory`、`antnest_session`、
+`prototype_antnest`），`str.format` 对未替换的 `{...}` 抛 `KeyError`；且工具可见性
+依赖运行时的 `MCP_ENABLED` / `COMPACT_PANIC`，import 期烘焙会 advertise 不存在的工具。
+改为：修好 `queen_system.md`（补齐 3 个漏掉的工具、说明 `denied` 新词汇、把
+`run_cli`/`run_python` 明确移出可调用集合），并加 `QueenPromptFileTest` 在 CI 卡住
+漂移。**消灭漂移靠测试，不靠运行时魔法。**
+
+#### 回归：可见性与顺序必须逐项不变
+
+接线时一度把 `leave_memory_hints` 暴露到了常态（12 个可见工具 vs 旧的 11 个）。这是
+真实的行为变更——该工具的实现要求 messages 里存在 `COMPACT_PROMPT` 标记
+（`antnest_memory.leave_memory_hints:59-66`），常态暴露只会让模型反复调用后拿到错误。
+已加 `panic_only` 字段修正。
+
+`tools` 数组的**顺序**也会影响模型注意力分布，因此 `TOOL_SPECS` 中蚁后可见的部分
+按 v1.3.1 的原始顺序排列（MCP 追加在尾部），并由两个用例钉死：
+
+- `test_visibility_is_identical_to_v131_handwritten_list`（集合相等）
+- `test_legacy_order_is_preserved_when_sorted_by_first_use`（顺序相等）
+
+#### 测试
+
+`tests/test_registry.py`（35 用例）。重点不是「某函数返回什么」，而是**四种派生物之间
+必须一致**：spec ↔ executor ↔ schema ↔ prompt ↔ 畸形正则。另含
+`NoHandwrittenEnumerationTest`，用源码断言确保手写枚举不会回流。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **权限引擎仍未接线** | 注册表已提供 `level`，但 `agent_single_loop` 与 queen 的 5 个门禁点还没 consult 它 | **Step 3** |
+| `antnest_loop.py` 的 `import re` 已无使用者 | 派生正则后成为死 import | Step 3 顺手清理 |
+| `remove_tool` 仍不可达 | `antnest_toolforge.remove_tool` 不在 `tool_executors` 也不在 spec 里，LLM 调不到 | 遗留 |
+| 动态注册工具（toolforge 落盘的那批）不进注册表 | 它们是 filesystem-backed 的第二套注册表，只有 `register_tool` 这个入口工具在 spec 里 | 遗留（v1.5 与 Worker Profile 一起处理） |
+| Plan / Event / Checkpoint 均未开始 | — | Step 4–6 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

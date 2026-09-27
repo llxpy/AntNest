@@ -8,6 +8,7 @@ import re
 import sys
 
 import antnest_log
+import antnest_registry
 _log = antnest_log.get_logger("loop")
 
 
@@ -29,17 +30,22 @@ def get_task_status(task_id: str) -> str:
     return json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
 def _detect_malformed_tool_call(content: str):
     """检测 LLM 是否将 function call 写成了纯文本（而非 stream 中的 tool_calls delta）。
+
     仅在匹配到明确的 JSON 格式工具调用文本或 XML 标签时才判定为格式错误，
-    避免自然语言中偶然提到关键词的误报。"""
+    避免自然语言中偶然提到关键词的误报。
+
+    工具名 alternation 由 antnest_registry 派生（覆盖 TOOL_SPECS 全集 16 个），
+    取代原先手写的 13 个——那份已经漏了 register_tool / list_tools /
+    get_tool_source。范围刻意宽于「本回合实际暴露」的集合：leave_memory_hints
+    只在 COMPACT_PANIC 下暴露，若按 exposed 收窄，模型就能用纯文本伪造它的
+    JSON 调用绕过压缩流程。
+    """
     content_lower = content.lower()
     # XML 格式：tool_call / function / parameter 闭合标签
     if any(x in content_lower for x in ["</parameter>", "</function>", "</tool_call>"]):
         return True
     # JSON 格式：文本中以 {"name": 开头且有 "arguments" 键（模拟 function call）
-    if re.search(
-        r'\{\s*"name"\s*:\s*"(?:spawn_clone|get_task_status|view_file|list_dir|grep_files|write_file|search_replace|run_cli|run_python|web_fetch|leave_memory_hints|mcp_call|mcp_list_tools)"\s*,\s*"arguments"',
-        content_lower,
-    ):
+    if antnest_registry.malformed_call_regex().search(content_lower):
         return True
     return False
 
