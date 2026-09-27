@@ -30,6 +30,7 @@ module = [
   "antnest_log",
   "antnest_ui_pure",
   "antnest_inventory",
+  "antnest_permissions",
   "ui_render",
 ]
 disallow_untyped_defs = true
@@ -68,6 +69,7 @@ py-modules = [
   "antnest_config_schema",
   "antnest_ui_pure",
   "antnest_inventory",
+  "antnest_permissions",
 ]
 [tool.setuptools.package-data]
 "*" = ["ui_assets/*", "prompts/*"]

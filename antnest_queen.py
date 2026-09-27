@@ -18,6 +18,7 @@ from pathlib import Path
 import code_tools as ct
 import antnest_clone_worker
 import antnest_inventory
+import antnest_permissions
 import admin_utils
 import antnest_log
 _qlog = antnest_log.get_logger("queen")
@@ -573,34 +574,17 @@ def search_replace(
 
 
 # 高危命令模式：命中即拦截，避免工蚁/蚁后手滑造成不可逆破坏。
-# 覆盖范围：递归删除指向根/绝对路径/盘符/主目录/上级/当前/通配/HOME，以及格式化、关机、fork bomb。
-# 设计意图（与旧版一致）：只拦系统级不可逆操作，项目内相对路径（如 rm -rf node_modules）仍放行。
-_DANGER_CLI_PATTERNS = (
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+/(?!/)", "递归删除根/绝对路径"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+[a-zA-Z]:[\\/]", "递归删除整个盘符"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+~", "递归删除用户主目录"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\.\.(?:[\\/]|\s|$)", "递归删除上级目录"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\.(?:\s|$)", "递归删除当前目录"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+\*", "通配递归删除"),
-    (r"\brm\s+-(?:rf|fr|r\s*-f|f\s*-r|r|R)\s+[$]HOME", "递归删除 HOME"),
-    (r"\bdel\s+/[sqf]+\s+[a-zA-Z]:[\\/]", "强制删除系统盘"),
-    (r"\brd\s+/[sq]+\s+[a-zA-Z]:[\\/]", "删除系统盘目录"),
-    (r"\bformat\s+[a-zA-Z]:", "格式化磁盘"),
-    (r"\bshutdown\b", "关机/重启"),
-    (r"\bhalt\b", "关机"),
-    (r"\bmkfs\b", "格式化文件系统"),
-    (r"\bdd\s+if=/dev/zero\b", "危险磁盘写入"),
-    (r"\bRemove-Item\b[^\n]*(?:-Recurse|-Force|-r\b)", "PowerShell 递归/强制删除"),
-    (r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};:", "fork bomb"),
-)
+# v1.4 起唯一真源在 antnest_permissions.DANGER_PATTERNS（吸收了原
+# admin_utils.DANGEROUS_COMMANDS 的分类语义），这里保留同名常量作为兼容别名，
+# 外部引用（tests/test_security_fixes.py、AntNest.py re-export）不受影响。
+# 工蚁进程内另有一张 dangerous_patterns（antnest_clone_worker），那是第二道红线，
+# 受硬约束 C1 限制不能 import 业务模块，故不合并。
+_DANGER_CLI_PATTERNS = antnest_permissions.DANGER_PATTERNS
 
 
 def _check_danger_command(command: str):
     """返回 (是否拦截, 原因)。只拦指向系统根/盘符根/磁盘/关机的不可逆操作。"""
-    for pat, why in _DANGER_CLI_PATTERNS:
-        if re.search(pat, command or ""):
-            return True, why
-    return False, ""
+    return antnest_permissions.match_danger(command)
 
 
 def run_cli(command: str, timeout: int = 300) -> str:

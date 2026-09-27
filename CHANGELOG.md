@@ -89,6 +89,92 @@ antnest_config.py:47   run_if_clone_mode() → sys.exit(0)
 
 ---
 
+### Step 1 — Permission Model（L0–L5 权限分级）
+
+#### 解决的问题
+
+**1. 顺带修掉第二个「清单漂移」缺陷：自身源码保护名单已过期。**
+
+`antnest_config._SELF_SOURCE_NAMES` 是手写集合，落后于模块拆分——`antnest_config.py`、
+`antnest_log.py`、`antnest_errors.py`、`antnest_config_schema.py`、`antnest_queen.py`、
+`antnest_llm.py` **全都不在名单里**。也就是说「修改 AntNest 自身源码需用户确认」这条
+门禁，**对配置文件本身是不生效的**：Agent 可以无确认地改写 `antnest_config.py`。
+现改为从 `antnest_inventory` 的 import 闭包派生（33 个条目，原 14 个）。
+
+**2. 把权限判断从「散落 6 个点的 if」收敛成一个可声明、可审计的决策函数。**
+
+原先权限相关逻辑分布在 `spawn_clone` / `write_file` / `search_replace` / `run_cli` /
+`run_python` 五处，三张语义不同的危险命令表，且没有任何地方能回答「这只工蚁能看什么、
+能写什么、能不能联网」。
+
+新增 `antnest_permissions.py`：
+
+- `PermLevel` L0–L5（READ / WRITE / EXECUTE / NETWORK / SYSTEM / SELF_MOD）
+- `Action` 三态 ALLOW / ASK / DENY（路线图 §10 要求 `[Allow Once] [Allow Task] [Deny]`，
+  二态表达不了「先问我」）
+- `decide()` 核心判定，**顺序即语义**：
+
+  ```
+  unknown tool                → DENY   fail-closed，忘登记的工具不会静默放行
+  explicit_confirm            → ASK    自源码 / 危险命令 / L4，永不 ALLOW
+  required <= level           → ALLOW
+  required > ask_above_level  → DENY
+  otherwise                   → ASK
+  ```
+
+  `explicit_confirm` 排在分级之前是刻意的。否则 `level=5`（最自然的「全开」配置）会因为
+  `SELF_MOD(5) <= 5` 直接 ALLOW，把「改自身源码永远需要人明确同意」这个不变量绕过去。
+  评审初版正是踩了这个坑，已由 `DecideOrderTest.test_explicit_confirm_beats_even_max_level`
+  钉死。
+
+- **参数敏感判定优先于静态等级**（硬约束 C2）。`write_file` 的静态等级是 L1，但如果
+  `path` 指向核心源码，结论必须是 ASK 而非 ALLOW。否则等于给了 Agent 一把改写自身
+  源码的钥匙——这是 v1.4 本会**主动引入**的安全回归。已由
+  `ArgSensitivityTest.test_write_to_self_source_asks_even_at_write_level` 钉死。
+- **授权按作用域签发**，不按工具：批准改一个文件不等于批准改整个仓库。
+  `grant_once` / `grant_task` / `reset_turn` / `reset_task`。
+- **危险模式表合并为一份**：`antnest_permissions.DANGER_PATTERNS` 升格为主表（吸收
+  `admin_utils.DANGEROUS_COMMANDS` 的分类语义）。`antnest_queen._DANGER_CLI_PATTERNS`
+  保留为兼容别名，`_check_danger_command` 改为反向委托。
+  `antnest_clone_worker.dangerous_patterns` **保留不动**——它是工蚁进程内的第二道红线，
+  且受硬约束 C1 限制（不能 import 业务模块）。这层冗余是正确的防御纵深。
+
+**3. 新增 `config.json → permissions` 段**，全部字段有安全默认值，旧 `config.json`
+不加任何东西即可运行。`level=3` 逐项复刻 v1.3.1 行为：
+
+| 能力 | v1.3.1 实际行为 | level=3 判定 |
+|------|----------------|-------------|
+| 读文件 | 允许 | ALLOW |
+| 写项目文件 | 允许 | ALLOW |
+| 执行命令 | 允许 | ALLOW |
+| web_fetch / MCP | 允许 | ALLOW |
+| 危险命令（管理员） | 弹确认 | ASK |
+| 改自身源码 | 需明确同意 | ASK |
+
+额外收获：`level=0` 提供「只读审阅模式」，`level=2` 提供「禁网络」——一个字段换来
+一整套可用的降权姿态。
+
+**4. 测试**：`tests/test_permissions.py`（40 用例），含等级矩阵、判定顺序、参数敏感性、
+授权生命周期、schema 校验，以及一个刻意反直觉的
+`DangerNotSandboxTest.test_danger_patterns_do_not_catch_obfuscated_payload`——
+它断言「看起来无害、实际做坏事的 Python」**不会**被危险模式拦到。存在的意义是防止
+文档和 UI 夸大权限模型的能力。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **权限引擎还没接线** | 本步只交付模型 + 配置 + 测试。`spawn_clone` / `write_file` 等仍走旧的 `_self_modification_gate`，`agent_single_loop` 也还没有权限闸门 | **Step 3** |
+| `ALLOW_ALL_CLI` 声明但零读取 | 管理员模式下危险命令走阻塞式 `input()`，UI 里会冻结工作线程 | Step 3 |
+| `denied` 未登记进非 ok 元组 | `antnest_loop.py:154-159` 只认 error/blocked/approval_required，新词汇会被记成 `ok` | Step 3 |
+| 被拒调用会计入重复检测 | 连续 3 次相同的**被拒**调用会触发「自我反思换方法」，等于教模型换方式重试刚被禁止的操作 | Step 3 |
+| **权限不是 Sandbox** | 危险模式只是提示不是控制：`python x.py` 里藏 `shutil.rmtree` 拦不到。真正的强隔离需 Job Object / WSL2 / AppContainer | 遗留 R4（v1.5） |
+| UI 无处展示权限 | 还没有 ✓/✗ 徽章，也没有越权询问的呈现 | Step 8 |
+| `antnest_config.py:118` 的 `sys.exit(1)` | 阻断无 key 环境下的测试 | 遗留 R8 |
+| `antnest_loop` / `queen` 的工具名仍手写 4 处 | 畸形调用正则与 prompt 工具列表都还是旧的 | Step 2 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

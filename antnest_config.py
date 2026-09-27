@@ -31,6 +31,8 @@ import antnest_runtime_state as runtime_state
 # import memory_tree  # (已迁移至子模块)
 import model_capabilities
 import antnest_log
+# 模块清单（只依赖标准库，可安全在本模块半初始化阶段导入；见 docs/v1.4-DESIGN.md 硬约束 C1）
+import antnest_inventory
 
 # ====================== 日志系统初始化 ======================
 # 在启动序列最早期初始化结构化日志（三层：控制台/文件 JSON/桥接事件）。
@@ -413,13 +415,23 @@ def approve_self_modification() -> None:
     SELF_MODIFICATION_APPROVED = True
 
 
-_SELF_SOURCE_NAMES = {
-    "AntNest.py", "antnest_bridge.py", "antnest_runtime_state.py",
-    "antnest_session.py", "code_tools.py", "admin_utils.py",
-    "prototype_antnest.py", "ui_render.py", "ui_assets_loader.py",
-    "antnest_launcher.py", "phtmlwin.py",
-    "ui_assets/app.js", "ui_assets/app.css", "ui_assets/index.html",
-}
+# AntNest 自身正在运行的源码：改动这些文件会影响当前进程的行为，必须先问用户。
+# 这份名单历史上是手写的，已经落后于模块拆分（antnest_config / antnest_log /
+# antnest_errors / antnest_config_schema / antnest_queen / antnest_llm 等都不在里面），
+# 也就是说 Agent 可以无确认地改写配置文件本身。
+# 现由 antnest_inventory 从真实 import 图派生核心运行时模块，再并上非 Python 的
+# 前端资源与历史名单，避免再次漂移。
+def _derive_self_source_names() -> frozenset[str]:
+    derived = set(antnest_inventory.worker_modules())
+    derived.update({
+        "antnest_bridge.py", "prototype_antnest.py", "antnest_launcher.py",
+        "phtmlwin.py", "ui_render.py", "antnest_ui_pure.py", "ui_assets_loader.py",
+        "ui_assets/app.js", "ui_assets/app.css", "ui_assets/index.html",
+    })
+    return frozenset(derived)
+
+
+_SELF_SOURCE_NAMES = _derive_self_source_names()
 
 
 def _is_self_source_path(path: Path) -> bool:
@@ -492,6 +504,62 @@ def _runtime_prompt_context():
 
 # 深度限制：蚁后=0，工蚁=1，子工蚁=2，≥3 禁止复制
 MAX_DEPTH = int(os.environ.get("AN_MAX_DEPTH") or _cfg_validated.agent.max_depth)
+
+# ====================== 权限层（v1.4） ======================
+# 注入 PermissionEngine。antnest_permissions 只依赖标准库，所以这里可以安全地
+# 在 antnest_config 半初始化阶段 import 它（见 docs/v1.4-DESIGN.md 硬约束 C1：
+# antnest_clone_worker 才是那个不能碰业务模块的叶子）。
+import antnest_permissions as _perm_mod
+from antnest_permissions import PermLevel as _PermLevel
+
+PERM_LEVEL = _PermLevel.parse(
+    os.environ.get("ANT_PERM_LEVEL") or _cfg_validated.permissions.level,
+    _PermLevel.NETWORK,
+)
+PERM_ASK_ABOVE = _PermLevel.parse(
+    os.environ.get("ANT_PERM_ASK_ABOVE") or _cfg_validated.permissions.ask_above_level,
+    _PermLevel.NETWORK,
+)
+PERM_AUDIT = _cfg_validated.permissions.audit
+CHECKPOINT_ENABLED = _cfg_validated.permissions.checkpoint_enabled
+CHECKPOINT_KEEP = _cfg_validated.permissions.checkpoint_keep
+
+
+def _build_permission_engine():
+    """构造并注册进程级 PermissionEngine。
+
+    - self_source_names / root 复用本模块的 _SELF_SOURCE_NAMES（名单唯一定义处）
+    - self_mod_approved_cb 走回调而非快照：approve_self_modification() 会就地
+      改模块级标志，快照会立刻过期
+    - danger_match 不注入：antnest_permissions 自带 match_danger，而
+      antnest_queen._check_danger_command 改为反向委托它，危险模式表只有一份
+    """
+    policy = _perm_mod.PermissionPolicy(
+        level=PERM_LEVEL,
+        ask_above_level=PERM_ASK_ABOVE,
+        project_dir=PROJECT_DIR,
+        self_source_names=frozenset(_SELF_SOURCE_NAMES),
+        self_source_root=THIS_DIR,
+        self_mod_approved_cb=lambda: bool(SELF_MODIFICATION_APPROVED),
+    )
+    config = _perm_mod.PermissionsConfig(
+        level=PERM_LEVEL,
+        ask_above_level=PERM_ASK_ABOVE,
+        audit=PERM_AUDIT,
+        checkpoint_enabled=CHECKPOINT_ENABLED,
+        checkpoint_keep=CHECKPOINT_KEEP,
+    )
+    return _perm_mod.configure(config, policy)
+
+
+def permission_policy() -> _perm_mod.PermissionPolicy:
+    """当前策略快照（供 UI 展示与测试断言）。"""
+    return _perm_mod.get_engine().policy
+
+
+def permissions_summary() -> str:
+    """一行式权限摘要（启动日志 / 系统提示词）。"""
+    return _perm_mod.get_engine().config.describe()
 
 # 各层最大并发工蚁数
 _default_max_clones = {0: 10, 1: 5, 2: 3}
@@ -622,3 +690,9 @@ COMPACT_PROMPT = r"""《紧急危机》！！！记忆容量即将达到上限�
 3. 调用 leave_memory_hints 留下记忆线索
 
 过程中不要中断，直到 leave_memory_hints 被执行。"""
+
+
+# ====================== 权限引擎注册（必须最后） ======================
+# 放在文件末尾：_build_permission_engine() 依赖本模块上方定义的
+# _SELF_SOURCE_NAMES / PROJECT_DIR / THIS_DIR / SELF_MODIFICATION_APPROVED。
+PERMISSION_ENGINE = _build_permission_engine()

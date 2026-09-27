@@ -50,15 +50,38 @@ class AgentConfig:
 
 
 @dataclass
+class PermissionsConfig:
+    """权限层配置（v1.4 新增）。
+
+    默认值逐项复刻 v1.3.1 的实际行为：读写执行联网全放行，危险命令与 AntNest
+    自身源码需用户确认。见 docs/v1.4-DESIGN.md §5.4。
+    """
+
+    # 当前授予的权限等级 L0–L5。设 0 即「只读审阅模式」。
+    level: int = 3
+    # 超过此等级直接硬拒绝（不再询问）。等于 level 时表示「未授予的一律询问」。
+    ask_above_level: int = 3
+    # 权限判定与放行/拒绝是否落审计日志
+    audit: bool = True
+    # 任务检查点（v1.4 新增，见 antnest_checkpoint）
+    checkpoint_enabled: bool = True
+    checkpoint_keep: int = 20
+
+    _VALID_LEVELS = (0, 1, 2, 3, 4, 5)
+
+
+@dataclass
 class AppConfig:
     """根配置容器"""
 
     api: ApiConfig = field(default_factory=ApiConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    permissions: PermissionsConfig = field(default_factory=PermissionsConfig)
 
     # 未识别字段名（用于警告，不阻断）
     unknown_api_keys: list[str] = field(default_factory=list)
     unknown_agent_keys: list[str] = field(default_factory=list)
+    unknown_permissions_keys: list[str] = field(default_factory=list)
 
     # 校验问题汇总（供启动报告展示）
     problems: list[str] = field(default_factory=list)
@@ -115,6 +138,29 @@ def _check_http_url(value: Any, name: str, problems: list[str]) -> str:
     return s
 
 
+def _check_level(value: Any, name: str, problems: list[str]) -> int:
+    """校验权限等级 L0–L5（也接受 "L3" / "network" 这类写法）。
+
+    无法识别时回退到该字段的**文档默认值**（NETWORK=3，与 v1.3.1 行为一致），
+    而不是最保守的 READ——后者会让「配置写错」静默变成「降权运行」。
+    """
+    from antnest_permissions import PermLevel
+
+    fallback = int(PermLevel.NETWORK)
+    if value is None:
+        return fallback
+    if isinstance(value, bool):
+        problems.append(f"{name}：应为 0–5 的等级（收到布尔值 {value!r}），回退 {fallback}")
+        return fallback
+    parsed = PermLevel.parse(value, None)
+    if parsed is None:
+        problems.append(
+            f"{name}：无法识别的权限等级（{value!r}），应为 0–5 或 L0–L5，回退 {fallback}"
+        )
+        return fallback
+    return int(parsed)
+
+
 # ====================== 主校验入口 ======================
 
 def validate_config(config: dict | None) -> AppConfig:
@@ -126,8 +172,10 @@ def validate_config(config: dict | None) -> AppConfig:
     problems: list[str] = []
     api_unknown: list[str] = []
     agent_unknown: list[str] = []
+    perm_unknown: list[str] = []
     api_cfg = ApiConfig()
     agent_cfg = AgentConfig()
+    perm_cfg = PermissionsConfig()
 
     # ---- api 层 ----
     raw_api = config.get("api", {})
@@ -207,11 +255,48 @@ def validate_config(config: dict | None) -> AppConfig:
         else:
             problems.append("agent.max_clones：应为对象")
 
+    # ---- permissions 层（v1.4 新增） ----
+    raw_perm = config.get("permissions", {})
+    if not isinstance(raw_perm, dict):
+        problems.append("permissions：应为对象")
+        raw_perm = {}
+
+    _perm_fields = {f for f in PermissionsConfig.__dataclass_fields__ if not f.startswith("_")}
+    for k in raw_perm:
+        if k not in _perm_fields:
+            perm_unknown.append(k)
+
+    if "level" in raw_perm:
+        perm_cfg.level = _check_level(raw_perm.get("level"), "permissions.level", problems)
+    if "ask_above_level" in raw_perm:
+        perm_cfg.ask_above_level = _check_level(
+            raw_perm.get("ask_above_level"), "permissions.ask_above_level", problems
+        )
+    if "audit" in raw_perm:
+        perm_cfg.audit = _check_bool(raw_perm.get("audit"), "permissions.audit", problems)
+    if "checkpoint_enabled" in raw_perm:
+        perm_cfg.checkpoint_enabled = _check_bool(
+            raw_perm.get("checkpoint_enabled"), "permissions.checkpoint_enabled", problems
+        )
+    if "checkpoint_keep" in raw_perm:
+        perm_cfg.checkpoint_keep = _check_int(
+            raw_perm.get("checkpoint_keep"), "permissions.checkpoint_keep", 1, 200, problems
+        )
+    if perm_cfg.ask_above_level > perm_cfg.level:
+        # 不静默改写用户意图：硬拒绝阈值高于授予等级意味着「越级即询问」，
+        # 这是合法配置（放宽），但容易与「收紧」搞混，明确提示一次。
+        problems.append(
+            f"permissions.ask_above_level（L{perm_cfg.ask_above_level}）高于 "
+            f"level（L{perm_cfg.level}）：越级操作将走「询问」而非「硬拒绝」"
+        )
+
     result = AppConfig(
         api=api_cfg,
         agent=agent_cfg,
+        permissions=perm_cfg,
         unknown_api_keys=api_unknown,
         unknown_agent_keys=agent_unknown,
+        unknown_permissions_keys=perm_unknown,
     )
 
     # ---- 日志输出 ----
@@ -228,6 +313,10 @@ def validate_config(config: dict | None) -> AppConfig:
 
 def log_validation_report(result: AppConfig) -> None:
     """在启动时输出配置校验报告。"""
-    unknown = result.unknown_api_keys + result.unknown_agent_keys
+    unknown = (
+        result.unknown_api_keys
+        + result.unknown_agent_keys
+        + result.unknown_permissions_keys
+    )
     if unknown:
         _log.info(f"配置中包含未识别字段：{', '.join(unknown)}（将被忽略）")
