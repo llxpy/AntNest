@@ -67,13 +67,16 @@ class CodeToolsTest(unittest.TestCase):
         if os.name != "nt":
             self.skipTest("Windows only")
         cmd = ct.worker_py_cmd('print("antnest_ok")', is_windows=True, python_exe="python")
+        # 超时放到 90s：冷启动 powershell 在机器负载高时（CI 跑全套、杀毒软件
+        # 扫描新建进程）偶尔会超过 30s，导致这个用例间歇性失败。命令本身是
+        # 毫秒级的，多给的是「等 powershell 起来」的余量，不是执行时间。
         r = subprocess.run(
             ["powershell", "-Command", cmd],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=90,
         )
         self.assertIn("antnest_ok", r.stdout, msg=r.stderr or r.stdout)
 

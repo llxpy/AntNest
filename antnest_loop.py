@@ -9,6 +9,7 @@ import sys
 import antnest_log
 import antnest_registry
 import antnest_permissions
+import antnest_events
 _log = antnest_log.get_logger("loop")
 
 # 审计日志实例。
@@ -25,6 +26,10 @@ _log = antnest_log.get_logger("loop")
 # 这里直接用模块级 antnest_log.get_audit()，不依赖壳的 re-export——
 # 工具函数不该走那条脆弱的 _A() 路径。
 _audit = antnest_log.get_audit
+
+# 事件日志（v1.4）。直接持有模块引用而不是走 _A()——同 get_audit 的理由。
+# 事件系统 fail-open，任何异常都不会影响循环。
+_ev = antnest_events
 
 # 工具结果里被视为「未成功」的 status 词汇。
 # v1.3.1 只有三项；v1.4 权限闸门引入 denied（硬拒绝），若不登记会被记成 ok，
@@ -119,6 +124,7 @@ def agent_single_loop():
         _rounds += 1
         if _rounds > _max_rounds:
             _log.warning(f"已达单任务最大轮次 {_max_rounds}，强制结束")
+            _ev.emit(_ev.Event.LOOP_MAX_ROUNDS, rounds=_rounds, limit=_max_rounds)
             _A().messages.append({
                 "role": "user",
                 "content": (
@@ -127,8 +133,10 @@ def agent_single_loop():
                 ),
             })
             break
+        _ev.emit(_ev.Event.LOOP_ROUND, round=_rounds, limit=_max_rounds)
         if _A().AGENT_CANCEL:
             _log.info("用户强行停止")
+            _ev.emit(_ev.Event.LOOP_CANCELLED, round=_rounds)
             _A().messages.append({
                 "role": "user",
                 "content": "《系统提示》用户已强行停止当前操作。请简要确认已中断，并询问是否继续。",
@@ -192,6 +200,7 @@ def agent_single_loop():
                         # 策略升级：不中断任务，改为「自我反思换方法」——
                         # 注入反思指令后继续循环，让 LLM 调整思路继续推进。
                         _log.warning(f"检测到重复调用 {name}（连续 3 次相同参数），注入自我反思引导")
+                        _ev.emit(_ev.Event.LOOP_DUP_CALL, tool=name, count=_A()._DUP_CALL_LIMIT)
                         _A().messages.append({
                             "role": "user",
                             "content": (
@@ -211,7 +220,7 @@ def agent_single_loop():
                     _log.debug("")
 
                     _t0 = __import__("time").time()
-                    _audit().log_tool_call(name, args)
+                    _ev.tool_call(name, args)
 
                     # ====== 权限闸门（唯一工具级入口） ======
                     _denied_by_perm = False
@@ -223,8 +232,15 @@ def agent_single_loop():
                     if _dec is not None and not _dec.allowed:
                         _denied_by_perm = True
                         result = _dec.to_tool_result()
+                        # 安全事件两边都记：audit.log 负责追责，events 负责重放
                         _audit().log_security_event(
                             _dec.action.value, f"{name}: {_dec.reason}"
+                        )
+                        _ev.permission(
+                            _ev.Event.PERMISSION_DENIED
+                            if _dec.blocked else _ev.Event.PERMISSION_REQUESTED,
+                            tool=name, action=_dec.action.value, reason=_dec.reason,
+                            scope=_dec.scope, level=_dec.level.label, code=_dec.code,
                         )
                         _log.warning(f"[权限] {name} → {_dec.action.value}：{_dec.reason}")
                     else:
@@ -232,7 +248,7 @@ def agent_single_loop():
 
                     _dur_ms = (__import__("time").time() - _t0) * 1000
                     _status = _result_status(result)
-                    _audit().log_tool_result(name, _status, _dur_ms)
+                    _ev.tool_result(name, _status, _dur_ms)
                     # spawn_clone 失败自动重试一次（仅 error；timeout 不重试，
                     # 避免卡死命令翻倍耗时）。被权限拒绝的不重试——重试同一个
                     # 被禁的操作毫无意义。
@@ -241,7 +257,9 @@ def agent_single_loop():
                             d = json.loads(result)
                             if d.get("status") == "error":
                                 _log.info(f"spawn_clone 状态=error，自动重试一次")
+                                _ev.worker(_ev.Event.WORKER_RETRY, -1, task=str(args.get("label") or ""))
                                 result = _A().tool_executors[name](**args)
+                                _ev.tool_result(name, _result_status(result), _dur_ms)
                         except Exception:
                             pass
                 except KeyboardInterrupt:
@@ -329,6 +347,7 @@ def agent_single_loop():
                     and usage["total_tokens"] >= _A().TOKEN_CAP * _A().COMPACT_THRESH
                 ):
                     _log.warning("紧急回合，触发记忆压缩")
+                    _ev.emit(_ev.Event.LOOP_COMPACT, total_tokens=usage["total_tokens"])
                     _A().COMPACT_PANIC = True
                     for i, m in enumerate(_A().messages):
                         _A().messages[i] = _A()._trim_tool_content(m)

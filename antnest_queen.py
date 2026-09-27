@@ -20,6 +20,7 @@ import antnest_clone_worker
 import antnest_inventory
 import antnest_permissions
 import antnest_registry
+import antnest_events as _ev
 import admin_utils
 import antnest_log
 _qlog = antnest_log.get_logger("queen")
@@ -235,6 +236,9 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
         use_cmd_file = False
 
     _qlog.info(f"[工蚁] {label or clone_id} → {clone_dir}")
+    _ev.worker(_ev.Event.WORKER_STARTED, -1, task=label or clone_id, status="running")
+
+    _t_worker = time.time()
 
     try:
         env = os.environ.copy()
@@ -274,6 +278,7 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                 if _A().AGENT_CANCEL:
                     _A()._kill_process_tree(proc)
                     proc.wait(timeout=5)
+                    _ev.worker(_ev.Event.WORKER_CANCELLED, -1, task=label or clone_id)
                     return json.dumps({
                         "status": "cancelled",
                         "error": "用户强行停止，工蚁已终止",
@@ -282,6 +287,10 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                     _A()._kill_process_tree(proc)
                     proc.wait(timeout=5)
                     task.mark_timeout()
+                    _ev.worker(
+                        _ev.Event.WORKER_TIMEOUT, -1, task=label or clone_id,
+                        duration_ms=(time.time() - _t_worker) * 1000,
+                    )
                     return json.dumps({
                         "status": "timeout",
                         "error": f"工蚁执行超时（{timeout}秒）",
@@ -332,6 +341,10 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                 pass
 
         _qlog.info(f"[工蚁] {label or clone_id} 完成 (exit={proc.returncode})")
+        _ev.worker(
+            _ev.Event.WORKER_COMPLETED, -1, task=label or clone_id,
+            status="ok", duration_ms=(time.time() - _t_worker) * 1000,
+        )
 
         # ====== 任务状态更新 ======
         try:
@@ -375,6 +388,10 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
 
     except Exception as e:
         task.mark_failed(str(e))
+        _ev.worker(
+            _ev.Event.WORKER_FAILED, -1, task=label or clone_id,
+            error=str(e)[:300], duration_ms=(time.time() - _t_worker) * 1000,
+        )
         return json.dumps({
             "status": "error",
             "error": f"工蚁管理异常：{str(e)}",

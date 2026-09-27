@@ -696,3 +696,17 @@ COMPACT_PROMPT = r"""《紧急危机》！！！记忆容量即将达到上限�
 # 放在文件末尾：_build_permission_engine() 依赖本模块上方定义的
 # _SELF_SOURCE_NAMES / PROJECT_DIR / THIS_DIR / SELF_MODIFICATION_APPROVED。
 PERMISSION_ENGINE = _build_permission_engine()
+
+
+# ====================== 事件日志 ======================
+# 落 PROJECT_ANT_DIR 而非 ANT_HOME：ANT_HOME 在安装版指向 Program Files（只读），
+# 记在那儿会让所有安装用户的记录被静默丢弃，而 fail-open 让失败不可见。
+# 见 docs/v1.4-DESIGN.md 硬约束 C4。
+EVENTS_ENABLED = os.environ.get("ANT_EVENTS", "1").strip().lower() not in ("0", "false", "no", "off")
+EVENT_LOG = None
+if EVENTS_ENABLED:
+    try:
+        import antnest_events as _events_mod
+        EVENT_LOG = _events_mod.get_log(PROJECT_ANT_DIR)
+    except Exception as _ev_err:  # pragma: no cover - 事件系统永不影响启动
+        antnest_log.get_logger("config").warning(f"事件日志初始化失败（已禁用）：{_ev_err}")

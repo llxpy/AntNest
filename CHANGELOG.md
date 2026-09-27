@@ -362,6 +362,100 @@ re-export `get_audit`**（它只是 `antnest_log` 的一个函数）。于是每
 
 ---
 
+### Step 4 — Event Log（结构化事件流 + 任务重放）
+
+#### 解决的问题
+
+v1.3.1 有三份日志，定位一直很模糊：
+
+| 文件 | 格式 | 内容 | 问题 |
+|------|------|------|------|
+| `.antnest/antnest.log` | JSONL | 全部 `antnest.*` logger | 是 debug 日志，不是事件流 |
+| `.antnest/audit.log` | JSONL | tool_call / tool_result | 混了「发生了什么」与「谁被拦了」 |
+| `.antnest/ui_trace.log` | 纯文本 | UI 阶段流水 | 只有阶段号，重放不出任务时间线 |
+
+`AuditLogger` 里 `log_worker_spawn` / `log_worker_done` / `log_config_change` /
+`log_security_event` 四个方法从 v1.3.1 起就写好了，但**零调用点**。
+
+本步确立分工：
+
+```
+events/<task_id>.jsonl   任务生命周期  → 可重放
+audit.log                仅安全事件    → 可追责
+```
+
+于是 `antnest_loop` 不再把工具事件写进 audit.log，audit 只留安全决策。
+`log_config_change` 也接上了（`apply_settings` 热应用时记录变更前后值）。
+
+**事件集**（31 个）：任务 7 / 计划 4 / 工蚁 7 / 工具 2 / 权限 3 / 检查点 2 / 循环 5。
+
+**重放输出**正是路线图 §5 想要的形态：
+
+```
+18:03:22 #0001  TASK_CREATED     goal=修复测试失败
+18:03:22 #0002  LOOP_ROUND       round=1
+18:03:22 #0003  TOOL_CALL        tool=list_tools
+18:03:25 #0004  TOOL_RESULT      tool=list_tools status=ok duration_ms=1234.5
+18:03:25 #0005  TASK_COMPLETED
+```
+
+#### 实现的改动
+
+- **新增 `antnest_events.py`**：`Event` 枚举 + `EventLog`（JSONL + 内存环 + 轮转）
+  + 订阅机制 + 回合级 task_id 上下文。
+- **`antnest_loop`**：TOOL_CALL / TOOL_RESULT / PERMISSION_REQUESTED /
+  PERMISSION_DENIED / LOOP_ROUND / LOOP_MAX_ROUNDS / LOOP_DUP_CALL / LOOP_COMPACT /
+  LOOP_CANCELLED 全部接线。`log_tool_call` / `log_tool_result` 从循环中移除。
+- **`antnest_queen.spawn_clone`**：WORKER_STARTED / COMPLETED / FAILED / TIMEOUT /
+  CANCELLED / RETRY 接线（父进程侧——蚁后本来就观察得到 spawn 的起止）。
+- **`antnest_bridge._turn`**：TASK_CREATED / TASK_STARTED / TASK_COMPLETED /
+  TASK_FAILED / TASK_PAUSED 接线；回合结束调 `reset_turn()` 清理一次性授权。
+- **`wrapped_spawn` 回灌 `wid` 与 `worker_name` 到工蚁结果**。原来结果里没有 wid，
+  Plan 无从建立「节点 ↔ 工蚁」映射（Step 5 的前置）。
+
+#### 四个硬约束，各有测试守着
+
+1. **fail-open，但首次失败必须出声**。写盘失败时 `emit` 仍返回记录（事件本身发生了，
+   只是没持久化，返回 None 会让调用方误判）。首次失败打 WARNING，之后降级为 DEBUG
+   免得刷屏——否则「静默丢弃」和「正常没记录」从外面看一模一样。
+2. **绝不落盘推理内容 / 凭据**。`reasoning_content`、`thinking`、`api_key`、
+   `password`、`secret` 一律 redact；但 `total_tokens` / `prompt_tokens` /
+   `completion_tokens` 白名单放行（评测指标要它们）。有一条用例专门把
+   `reasoning_content` 塞进事件再断言文件里搜不到。
+3. **落 `PROJECT_ANT_DIR` 而不是 `ANT_HOME`**。ANT_HOME 在安装版指向 Program Files
+   （只读），记在那儿等于所有安装用户的记录被静默丢弃。
+4. **写盘用独立的 `_write_lock`，不复用 `STATE_LOCK`**。后者要覆盖 plan 的状态变更，
+   持锁做文件 I/O 会把 UI 线程的读取一起阻塞。
+
+#### 自己的测试抓出的 3 个 bug
+
+| Bug | 后果 |
+|-----|------|
+| `_FORBIDDEN_KEY` 用 `$` 锚定结尾 | `reasoning_content` 以 "content" 结尾，**没被脱敏**——思维链照常落盘。改成「键名含敏感词即 redact」+ 凭据精确名单 + 后缀匹配 |
+| 多线程各自 `open(path,"a")` | Windows 上**丢行**：6 线程 × 40 条只剩 237 条。加 `_write_lock` 后 8 线程 × 300 条 = 2400 条，一条不丢、seq 连续 |
+| `tasks()` 只捕 `OSError` | 路径含空字符时抛 `ValueError`，`stats()` / `replay()` 反而把调用方搞崩。补 `ValueError` + 读侧整体 fail-open |
+
+#### 测试
+
+- `tests/test_events.py`（36 用例）：记录格式、隐私、fail-open、轮转、查询、重放、
+  并发、订阅、辅助函数。
+- `tests/test_event_wiring.py`（13 用例）：用假 LLM 驱动真实 `agent_single_loop`，
+  验证事件真的产生、顺序正确、可重放、不含思维链、audit/events 分工正确。
+  含一条「`wrapped_spawn` 结果必须带 wid」的接线断言。
+
+#### 还有什么痛点（未解决）
+
+| 痛点 | 说明 | 计划 |
+|------|------|------|
+| **重放没有入口** | 能跑 `EventLog.replay()`，但用户/运维没有命令行或 UI 入口 | Step 8 |
+| 工蚁内部事件不记录 | 工蚁是独立进程，汇入需 `AN_EVENT_FILE` 跨进程写入 | 遗留（v1.5） |
+| 授权状态不持久 | 一次性/任务级授权只存内存，进程重启即失效 | Step 6 |
+| `ui_trace.log` 未合并 | 三份日志变成「events + audit + ui_trace」，仍是三份 | 遗留（与 stdout 抓取层一起处理） |
+| 事件没有 UI 实时通道 | `subscribe()` 已就绪但没人用 | Step 8 |
+| 磁盘占用 | 8MB × 3 代 × 20 个任务上限，约 480MB 理论峰值 | 观察，必要时收紧 |
+
+---
+
 ## v1.3.0 (2026-08-24)
 
 ### 修复（严重）

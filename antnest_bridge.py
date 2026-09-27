@@ -24,6 +24,7 @@ antnest_bridge.py —— AntNest 核心 ↔ UI 适配层
 【事件协议】on_event(kind, payload)
   status   {state: loading|ready|error|busy, detail}
   turn     {state: start|end}
+  task_id  {task_id}                                  v1.4：回合级任务 id
   chat     {role: user|queen, text, reasoning?}
   stream   {phase: start|reasoning_start|reasoning|reasoning_end|content|end, text?, reasoning?}
   log      {tag: queen|sys|worker|warn, text}
@@ -43,6 +44,7 @@ from datetime import datetime
 
 from api_compat import apply_recommendations, recommend_model_settings
 import antnest_runtime_state as runtime_state
+import antnest_events as _events
 import memory_tree
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -473,9 +475,23 @@ def browse_folder(initial_dir=""):
     return path or ""
 
 
+def _ev_worker_done(status: str, wid: int, title: str, cost: float, task_id: str = "") -> None:
+    """工蚁归巢事件。status: ok / fail / timeout / cancelled / blocked / running。"""
+    mapping = {
+        "ok": _events.Event.WORKER_COMPLETED,
+        "fail": _events.Event.WORKER_FAILED,
+        "timeout": _events.Event.WORKER_TIMEOUT,
+        "cancelled": _events.Event.WORKER_CANCELLED,
+    }
+    ev = mapping.get(status, _events.Event.WORKER_COMPLETED)
+    _events.worker(
+        ev, wid, task=title, status=status, duration_ms=cost * 1000,
+        task_id=task_id or "", artifacts=0,
+    )
+
+
 def push_env(settings):
     """UI 里填的配置写进 os.environ。
-
     必须这么做的原因：AntNest 第 102-104 行是
         os.environ.get("ANT_API_KEY") or _config_api.get("api_key")
     环境变量优先级更高。如果宿主机已存在 ANT_API_KEY，
@@ -863,6 +879,20 @@ class AntNestCore:
                     m.DEFAULT_WORKER_TIMEOUT = max(1, min(3600, int(str(settings["worker_timeout"]).strip())))
                 except (TypeError, ValueError, AttributeError):
                     trace("S3", "warn", f"worker_timeout 热应用失败：{settings.get('worker_timeout')}")
+            # 审计配置变更（v1.4 接上 AuditLogger.log_config_change，此前零调用点）
+            try:
+                import antnest_log as _al
+                audit = _al.get_audit()
+                for key in ("llm_model", "llm_base_url", "thinking_mode", "max_depth",
+                            "skip_model_check", "temperature", "compact_threshold",
+                            "worker_timeout", "perm_level"):
+                    if settings.get(key) is not None:
+                        old = getattr(m, key.upper() if key.startswith("llm_") else key, None)
+                        new = settings[key]
+                        if str(old) != str(new):
+                            audit.log_config_change(key, old, new)
+            except Exception as e:
+                trace("S3", "debug", f"配置变更审计跳过：{e}")
             trace("S3", "info", f"热应用：{m.ANT_MODEL_NAME} @ {m.ANT_BASE_URL} depth<={m.MAX_DEPTH}")
             self._init_mcp(self._ui_settings)
         except Exception as e:
@@ -904,6 +934,7 @@ class AntNestCore:
                       task=title, note="隔离目录已建，执行中")
             self.emit("subtask", id=wid, title=title, worker=name,
                       status="run", msg="已派发，等待工蚁返回")
+            _events.worker(_events.Event.WORKER_CREATED, wid, task=title, status="run")
             t0 = time.time()
             try:
                 result = orig_spawn(command=command, timeout=timeout, label=label, **kw)
@@ -911,13 +942,16 @@ class AntNestCore:
                 trace("S6", "error", f"#{wid} 抛异常：{e}")
                 self.emit("worker", id=wid, name=name, status="fail", task=title, note=f"异常：{e}")
                 self.emit("subtask", id=wid, title=title, worker=name, status="fail", msg=f"异常：{e}")
+                _events.worker(_events.Event.WORKER_FAILED, wid, task=title, error=str(e)[:200])
                 raise
             status, note = summarize_clone_result(result)
             artifacts = []
+            task_id = ""
             try:
                 d = json.loads(result)
                 if isinstance(d, dict):
                     artifacts = d.get("artifacts") or []
+                    task_id = str(d.get("task_id") or "")
             except Exception:
                 pass
             cost = round(time.time() - t0, 1)
@@ -925,6 +959,18 @@ class AntNestCore:
             self.emit("worker", id=wid, name=name, status=status, task=title,
                       note=f"{note}（{cost}s）", artifacts=artifacts)
             self.emit("subtask", id=wid, title=title, worker=name, status=status, msg=note)
+            # 回灌 task_id 与 worker id，供 Plan 绑定「节点 ↔ 工蚁」（Step 5）。
+            # 原来 result 里没有 wid，plan.bind_worker 无从建立映射。
+            if task_id:
+                try:
+                    d = json.loads(result)
+                    if isinstance(d, dict):
+                        d["wid"] = wid
+                        d["worker_name"] = name
+                        result = json.dumps(d, ensure_ascii=False)
+                except Exception:
+                    pass
+            _ev_worker_done(status, wid, title, cost, task_id)
             return result
 
         m.tool_executors["spawn_clone"] = wrapped_spawn
@@ -1085,11 +1131,18 @@ class AntNestCore:
         self._stream_capture = {"reasoning": "", "content": ""}
         if self.mod:
             self.mod.agent_reset_cancel()
+        # 回合级 task id（v1.4）。task_manager 的 id 是工蚁级的，不是回合级。
+        _tid = _events.new_task_id()
+        _events.set_current_task_id(_tid)
+        self._task_id = _tid
+        _events.emit(_events.Event.TASK_CREATED, task_id=_tid, goal=str(text)[:300])
+        self.emit("task_id", task_id=_tid)
         self.emit("turn", state="start")
         display_text = text
         if image_b64:
             display_text += "\n[附带图片]"
         self.emit("chat", role="user", text=display_text)
+        _events.emit(_events.Event.TASK_STARTED, task_id=_tid)
         trace("S5", "info", f"turn 开始：{text[:60]} image={bool(image_b64)}")
         try:
             ok, err = self.ensure_loaded()
@@ -1234,10 +1287,22 @@ class AntNestCore:
             trace("S5", "error", f"turn 异常：{e}\n{traceback.format_exc()}")
             self.log("warn", f"[S5] 执行异常：{e}")
             self.emit("chat", role="queen", text=f"执行出错：{e}\n（详见 .antnest/ui_trace.log）")
+            _events.emit(
+                _events.Event.TASK_FAILED, task_id=_tid, error=str(e)[:300]
+            )
         finally:
             if self.mod:
                 self.mod.agent_reset_cancel()
                 self.mod.SELF_MODIFICATION_APPROVED = False
+                if getattr(self.mod, "PERMISSION_ENGINE", None) is not None:
+                    # 一次性授权不跨回合；任务级授权在任务结束时清空
+                    self.mod.PERMISSION_ENGINE.reset_turn()
+            if _events.current_task_id() == _tid:
+                _events.emit(
+                    _events.Event.TASK_COMPLETED, task_id=_tid,
+                    messages=len(self.mod.messages) - start if self.mod else 0,
+                )
+                _events.clear_current_task_id()
             self.busy = False
             self.emit("turn", state="end")
             trace("S5", "info", "turn 结束")
@@ -1249,6 +1314,10 @@ class AntNestCore:
         if self.mod:
             self.mod.agent_cancel()
         self.log("warn", "用户强行停止；正在保存可恢复执行快照")
+        _events.emit(
+            _events.Event.TASK_PAUSED, task_id=getattr(self, "_task_id", ""),
+            task=str(self._current_task)[:200],
+        )
         self.emit("recovery", state="pending", task=self._current_task)
         return True, "stopping"
 
