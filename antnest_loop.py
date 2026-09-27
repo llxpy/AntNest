@@ -7,6 +7,9 @@ import os
 import re
 import sys
 
+import antnest_log
+_log = antnest_log.get_logger("loop")
+
 
 def _A():
     import AntNest as _m
@@ -44,6 +47,7 @@ def _detect_malformed_tool_call(content: str):
 def agent_single_loop():
     global COMPACT_PANIC, LAST_USAGE
     _A()._ensure_model_cap()
+    COMPACT_PANIC = False
     break_loop = False
     _rounds = 0
     _recent_cmds = []  # 最近工具调用 (name, args) 记录，用于重复循环检测
@@ -51,7 +55,7 @@ def agent_single_loop():
     while not break_loop:
         _rounds += 1
         if _rounds > _max_rounds:
-            print(f"\n[!] 已达单任务最大轮次 {_max_rounds}，强制结束")
+            _log.warning(f"已达单任务最大轮次 {_max_rounds}，强制结束")
             _A().messages.append({
                 "role": "user",
                 "content": (
@@ -61,7 +65,7 @@ def agent_single_loop():
             })
             break
         if _A().AGENT_CANCEL:
-            print("\n\n[STOP] 用户强行停止")
+            _log.info("用户强行停止")
             _A().messages.append({
                 "role": "user",
                 "content": "《系统提示》用户已强行停止当前操作。请简要确认已中断，并询问是否继续。",
@@ -74,7 +78,7 @@ def agent_single_loop():
             try:
                 msg, usage = _A().llm_chat_stream(_A()._with_retrieved_memory(_A().messages), tools=tools)
             except _A().ThinkRepeatError:
-                print("\n\n[!] 检测到 thinking 重复，自动中断")
+                _log.warning("检测到 thinking 重复，自动中断")
                 _A().messages.append({
                     "role": "user",
                     "content": "警告：你的 thinking 中出现了大量重复内容，已被擦除。请继续，不要陷入循环。",
@@ -123,7 +127,7 @@ def agent_single_loop():
                     if _recent_cmds.count(_key) >= _A()._DUP_CALL_LIMIT:
                         # 策略升级：不中断任务，改为「自我反思换方法」——
                         # 注入反思指令后继续循环，让 LLM 调整思路继续推进。
-                        print(f"\n[!] 检测到重复调用 {name}（连续 3 次相同参数），注入自我反思引导")
+                        _log.warning(f"检测到重复调用 {name}（连续 3 次相同参数），注入自我反思引导")
                         _A().messages.append({
                             "role": "user",
                             "content": (
@@ -137,40 +141,51 @@ def agent_single_loop():
                         _recent_cmds.clear()  # 反思轮不计入新一轮重复计数
                         continue
 
-                    print(f"===> {name}")
+                    _log.debug(f"===> {name}")
                     for k, v in args.items():
-                        print(f"  {k}: {v}")
-                    print()
+                        _log.debug(f"  {k}: {v}")
+                    _log.debug("")
 
+                    _t0 = __import__("time").time()
+                    _A().get_audit().log_tool_call(name, args)
                     result = _A().tool_executors[name](**args)
+                    _dur_ms = (__import__("time").time() - _t0) * 1000
+                    try:
+                        _status = "ok"
+                        _rd = json.loads(result)
+                        if _rd.get("status") in ("error", "blocked", "approval_required"):
+                            _status = _rd["status"]
+                    except Exception:
+                        _status = "ok"
+                    _A().get_audit().log_tool_result(name, _status, _dur_ms)
                     # spawn_clone 失败自动重试一次（仅 error；timeout 不重试，
                     # 避免卡死命令翻倍耗时）
                     if name == "spawn_clone":
                         try:
                             d = json.loads(result)
                             if d.get("status") == "error":
-                                print(f"[重试] spawn_clone 状态=error，自动重试一次")
+                                _log.info(f"spawn_clone 状态=error，自动重试一次")
                                 result = _A().tool_executors[name](**args)
                         except Exception:
                             pass
                 except KeyboardInterrupt:
-                    print("\n工具调用已中断，回到用户 turn")
+                    _log.info("工具调用已中断，回到用户 turn")
                     result = "用户中止该工具运行"
                     break_loop = True
                 except Exception as e:
                     result = f"工具执行异常：{str(e)}"
 
-                print("<=== 工具返回：")
+                _log.debug("<=== 工具返回：")
                 preview = (
                     f"{result[:6000]}\n... 后面内容省略"
                     if len(result) > 6000
                     else result
                 )
                 lines = preview.splitlines()
-                print("\n".join(lines[:30]))
+                _log.debug("\n".join(lines[:30]))
                 if len(lines) > 30:
-                    print("\n... 后面内容省略")
-                print("\n")
+                    _log.debug("\n... 后面内容省略")
+                _log.debug("")
 
                 if name == "leave_memory_hints":
                     usage["total_tokens"] = 0
@@ -209,7 +224,7 @@ def agent_single_loop():
                     not _A().COMPACT_PANIC
                     and usage["total_tokens"] >= _A().TOKEN_CAP * _A().COMPACT_THRESH
                 ):
-                    print("！！！紧急回合，触发记忆压缩")
+                    _log.warning("紧急回合，触发记忆压缩")
                     _A().COMPACT_PANIC = True
                     for i, m in enumerate(_A().messages):
                         _A().messages[i] = _A()._trim_tool_content(m)
@@ -248,11 +263,15 @@ def agent_single_loop():
                 })
 
         except KeyboardInterrupt:
-            print("\nagent_single_loop 已中断，回到用户 turn")
+            _log.info("agent_single_loop 已中断，回到用户 turn")
             break_loop = True
             break
         except Exception as e:
-            print(f"LLM 调用异常：{e}")
+            from antnest_errors import AntNestError
+            if isinstance(e, AntNestError):
+                _log.error(f"[{e.code}] LLM 调用异常：{e}")
+            else:
+                _log.error(f"LLM 调用异常：{e}")
             break
 
 
@@ -289,7 +308,7 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
                         break
                     until_rounds += 1
                     if until and until_rounds >= until_max:
-                        print(f"\n[!] 已达 until 最大轮数 ({until_max})，停止等待停止字符串。")
+                        _log.warning(f"已达 until 最大轮数 ({until_max})，停止等待停止字符串。")
                         break
                     _A().messages.append({
                         "role": "user",
@@ -304,7 +323,7 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
             print("")
             user_input = _A().read_input("[-] You: ")
             if user_input is None:
-                print("\n输入结束")
+                _log.info("输入结束")
                 if not user_ask or save_after:
                     _A().save_session(_A().messages)
                     _A().release_lock()
@@ -318,13 +337,13 @@ def human_loop(user_ask=None, save_after=False, until: str = ""):
         except KeyboardInterrupt:
             if not user_ask or save_after:
                 _A().save_session(_A().messages)
-                print("\n已中断" + ("，会话已保存" if (not user_ask or save_after) else ""))
+                _log.info("已中断，会话已保存")
                 _A().release_lock()
             else:
-                print("\n已中断")
+                _log.info("已中断")
             break
         except Exception as e:
-            print(f"主循环异常：{e}")
+            _log.error(f"主循环异常：{e}")
             if not user_ask or save_after:
                 _A().release_lock()
             break

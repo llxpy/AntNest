@@ -11,6 +11,16 @@ import urllib.error
 import urllib.request
 
 from api_compat import effective_temperature, resolve_api_profile, sanitize_messages_for_api
+import antnest_log
+from antnest_errors import ApiError, AntNestError
+_llm_log = antnest_log.get_logger("llm")
+
+# 默认采样温度：env ANT_TEMPERATURE 优先（UI 设置经 push_env 写入），否则 0.6
+DEFAULT_TEMPERATURE = 0.6
+try:
+    DEFAULT_TEMPERATURE = float(os.environ.get("ANT_TEMPERATURE") or 0.6)
+except (TypeError, ValueError):
+    pass
 
 
 def _A():
@@ -25,7 +35,9 @@ def clean_input(text):
     return text
 
 
-def _build_request_data(messages, tools=None, temperature=0.6, thinking=True, stream=False):
+def _build_request_data(messages, tools=None, temperature=None, thinking=True, stream=False):
+    if temperature is None:
+        temperature = DEFAULT_TEMPERATURE
     profile = resolve_api_profile(_A().ANT_BASE_URL)
     use_thinking = _A()._thinking_requested(thinking, profile)
     temp = effective_temperature(temperature, profile, _A().ANT_MODEL_NAME)
@@ -59,10 +71,12 @@ def display_usage(usage, cap):
         return
     p = min(t / cap, 1.0)
     bar = "\u2588" * int(p * 20) + "\u2591" * (20 - int(p * 20))
-    print(f"\033[2mCTX [{bar}] {p:.0%}  ({t//1000}k/{cap//1000}k)\033[0m")
+    _llm_log.info(f"CTX [{bar}] {p:.0%}  ({t//1000}k/{cap//1000}k)")
 
 
-class ThinkRepeatError(Exception):
+class ThinkRepeatError(AntNestError):
+    default_code = "LLM-001"
+    default_user_msg = "检测到 thinking 重复"
     pass
 
 
@@ -96,7 +110,7 @@ class RepeatSuffixChecker:
         return False
 
 
-def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
+def llm_chat_stream(messages, tools=None, temperature=None, thinking=True):
     url = f"{_A().ANT_BASE_URL}/chat/completions"
     data = _build_request_data(messages, tools, temperature, thinking, stream=True)
 
@@ -131,14 +145,15 @@ def llm_chat_stream(messages, tools=None, temperature=0.6, thinking=True):
                 _A()._ACTIVE_STREAM_RESP = resp
             except urllib.error.HTTPError as e2:
                 raw2 = e2.read().decode("utf-8", errors="replace")
-                raise Exception(f"LLM调用失败，HTTP {e2.code}: {raw2[:500]}")
+                raise ApiError(f"LLM调用失败，HTTP {e2.code}: {raw2[:500]}", user_msg="模型 API 调用失败") from e2
         elif e.code == 429:
-            raise Exception(
+            raise ApiError(
                 f"LLM调用失败，HTTP 429：API 服务端过载，已自动重试仍失败。"
-                f"请稍后再试或换时段/换模型。详情：{raw[:300]}"
-            )
+                f"请稍后再试或换时段/换模型。详情：{raw[:300]}",
+                user_msg="模型服务过载，请稍后再试",
+            ) from e
         else:
-            raise Exception(f"LLM调用失败，HTTP {e.code}: {raw[:500]}")
+            raise ApiError(f"LLM调用失败，HTTP {e.code}: {raw[:500]}", user_msg="模型 API 调用失败") from e
 
     content_parts = []
     reasoning_parts = []

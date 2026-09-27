@@ -6,8 +6,10 @@ import base64 as _b64
 import html as _h
 import os as _os
 
+from antnest_ui_pure import render_markdown
 
-def esc(s) -> str:
+
+def esc(s: object) -> str:
     return _h.escape(str(s))
 
 
@@ -52,7 +54,7 @@ def _queen_avatar_html() -> str:
     return f'<span class="avatar queen-avatar">{_FALLBACK_QUEEN_AVATAR_SVG}</span>'
 
 
-def render_chat(chats) -> str:
+def render_chat(chats: list) -> str:
     parts = []
     for item in chats:
         if isinstance(item, dict):
@@ -62,6 +64,13 @@ def render_chat(chats) -> str:
         else:
             role, text = item[0], item[1]
             reasoning = ""
+        if role == "sys":
+            # 系统事件（如工蚁派发/完工）：居中事件条，无头像
+            if text:
+                parts.append(
+                    f'<div class="bubble sys"><div class="bubble-main">{render_markdown(text)}</div></div>'
+                )
+            continue
         body = ""
         if role == "queen":
             body += (
@@ -77,20 +86,28 @@ def render_chat(chats) -> str:
                 f'</div>'
             )
         if text:
-            body += f'<div class="bubble-text">{esc(text)}</div>'
+            body += f'<div class="bubble-text">{render_markdown(text)}</div>'
         if body:
             if role == "user":
                 avatar = '<span class="avatar user-avatar">你</span>'
             else:
                 avatar = _queen_avatar_html()
             extra_class = " interrupt-note" if str(text).startswith("⏹ 已保存的中断摘要") else ""
+            copy_btn = (
+                '<button type="button" class="msg-copy" title="复制内容">'
+                '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" '
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+                'stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/>'
+                '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+                "</button>"
+            )
             parts.append(
-                f'<div class="bubble {role}{extra_class}">{avatar}<div class="bubble-main">{body}</div></div>'
+                f'<div class="bubble {role}{extra_class}">{avatar}<div class="bubble-main">{body}{copy_btn}</div></div>'
             )
     return "\n".join(parts) or '<div class="muted" style="padding:8px">开始和蚁后对话吧</div>'
 
 
-def render_log(logs) -> str:
+def render_log(logs: list) -> str:
     lines = []
     for time, tag, text in logs:
         lines.append(

@@ -11,6 +11,9 @@ import re
 import subprocess
 from typing import Optional, Tuple
 
+import antnest_log
+_adm_log = antnest_log.get_logger("admin")
+
 # ====================== 管理员检测 ======================
 
 def is_admin() -> bool:
@@ -76,7 +79,7 @@ def fix_ime_for_admin():
 
         return True
     except Exception as e:
-        print(f"[admin_utils] IME 修复失败: {e}")
+        _adm_log.error(f"IME 修复失败: {e}")
         return False
 
 def get_user_sid() -> Optional[str]:
@@ -294,7 +297,7 @@ def get_user_confirmation(command: str) -> Tuple[bool, str]:
 def run_as_admin():
     """请求管理员权限提升（用于 Windows）"""
     if is_admin():
-        print("[admin_utils] 已经是管理员权限")
+        _adm_log.info("已经是管理员权限")
         return True
     else:
         try:
@@ -304,7 +307,7 @@ def run_as_admin():
             )
             return True
         except Exception as e:
-            print(f"[admin_utils] 权限提升失败: {e}")
+            _adm_log.error(f"权限提升失败: {e}")
             return False
 
 def get_admin_status() -> dict:

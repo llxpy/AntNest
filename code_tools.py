@@ -23,7 +23,8 @@ def resolve_path(path: str, project_dir: str) -> Path:
     try:
         p.relative_to(base)
     except ValueError:
-        raise ValueError(f"路径越出项目目录，已拒绝：{path}")
+        from antnest_errors import SafetyError
+        raise SafetyError(f"路径越出项目目录，已拒绝：{path}") from ValueError
     return p
 
 

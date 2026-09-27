@@ -27,7 +27,28 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+import antnest_log
+_plog = antnest_log.get_logger("gui")
+
 __all__ = ["El", "ui", "el", "Win"]
+
+
+def _webview_windows() -> list:
+    """惰性读取 pywebview 的当前窗口列表（浏览器模式无 webview 模块时返回空）。"""
+    try:
+        import webview
+        return list(getattr(webview, "windows") or [])
+    except Exception:
+        return []
+
+
+def _webview_import():
+    """惰性导入 pywebview 模块；失败返回 None，绝不抛出。"""
+    try:
+        import webview
+        return webview
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -300,12 +321,14 @@ class Win:
     def __init__(self, title: str = "PHtmlWin", width: int = 1000,
                  height: int = 700, backend: str = None,
                  icon: str = None, gui: str = None,
-                 favicon: str = None) -> None:
+                 favicon: str = None,
+                 frameless: bool = False) -> None:
         self.title = title
         self.width = width
         self.height = height
         self.icon = icon              # webview 窗口图标路径（.ico）
         self.favicon = favicon       # 页面 favicon（data:URI 或地址），空则不输出
+        self.frameless = frameless   # True=无系统标题栏，页面自绘（配合 .win-drag 区域）
         self._css = ""
         self._body_children: list = []
         self._routes: dict = {}
@@ -333,6 +356,57 @@ class Win:
                 self._window.hide()
             except Exception:
                 pass
+
+    def _win_ctrl(self, action: str) -> None:
+        """自绘标题栏窗口控制：minimize / maximize / restore / close。"""
+        if self._backend != "webview":
+            return  # 浏览器模式无窗口可控制，静默忽略
+        try:
+            wins = _webview_windows()
+            win = wins[0] if wins else None
+            if win is None:
+                return
+            if action == "minimize":
+                win.minimize()
+            elif action == "maximize":
+                win.maximize()
+            elif action == "restore":
+                win.restore()
+            elif action == "close":
+                win.destroy()
+        except Exception:
+            pass
+
+    def _register_builtin_routes(self) -> None:
+        """内置路由：页面自绘标题栏的窗口控制。JS 侧调 phwCall('win', {...})。"""
+        if "win" not in self._routes:
+            self._routes["win"] = lambda data: self._win_ctrl(
+                (data or {}).get("action", "") if isinstance(data, dict) else ""
+            )
+
+    def _build_window_kwargs(self, page: str, bridge) -> dict:
+        """组装 webview.create_window 参数。兼容新旧版签名（探测后按需透传）。"""
+        kwargs: dict = {"title": self.title, "html": page,
+                        "width": self.width, "height": self.height,
+                        "js_api": bridge}
+        try:
+            import inspect as _insp
+            _sig = _insp.signature(_webview_import().create_window)
+            _accepts = set(_sig.parameters)
+        except Exception:
+            _accepts = set()
+        if self.icon and "icon" in _accepts:
+            kwargs["icon"] = self.icon
+        if self._gui and "gui" in _accepts:
+            kwargs["gui"] = self._gui
+        if self.frameless and "frameless" in _accepts:
+            # frameless：页面自绘拖动区 + 窗口按钮（CSS .win-ctrl / topbar drag）
+            kwargs["frameless"] = True
+            # easy_drag=True 会把整页设为可拖动，破坏输入/滚动；用 CSS app-region 控制
+            kwargs["easy_drag"] = False
+            # frameless 时保留系统阴影（Windows），质感与可读性更好
+            kwargs["shadow"] = True
+        return kwargs
 
     # ---- 声明式 API ----
     def css(self, css: str):
@@ -425,6 +499,7 @@ class Win:
     def run(self) -> None:
         if self._backend is None:
             self._backend = self._detect_backend()
+        self._register_builtin_routes()
         if self._backend == "webview":
             self._start_webview()
         else:
@@ -445,22 +520,10 @@ class Win:
                 if fn:
                     fn(data)
 
-        kwargs = {"title": self.title, "html": page,
-                  "width": self.width, "height": self.height,
-                  "js_api": Bridge(self)}
-        # 兼容新旧版 pywebview：icon/gui 等可选参数以运行时的 create_window
-        # 签名为准，支持才传。旧版（如安装版环境的 pywebview）不支持 icon，
-        # 直接传会 TypeError，这里探测后跳过，任务栏图标退回系统默认。
-        try:
-            import inspect as _insp
-            _sig = _insp.signature(webview.create_window)
-            _accepts = set(_sig.parameters)
-        except Exception:
-            _accepts = set()
-        if self.icon and "icon" in _accepts:
-            kwargs["icon"] = self.icon
-        if self._gui and "gui" in _accepts:
-            kwargs["gui"] = self._gui
+            def win(self, action):
+                self.app._win_ctrl(action)
+
+        kwargs = self._build_window_kwargs(page, Bridge(self))
         self._window = webview.create_window(**kwargs)
         start_kwargs = {}
         if self._gui:
@@ -494,8 +557,8 @@ class Win:
             )
             os.makedirs(user_data_dir, exist_ok=True)
             os.environ["WEBVIEW2_USER_DATA_FOLDER"] = user_data_dir
-            print(f"[PHtmlWin] 管理员模式：WebView2 用户数据目录 -> {user_data_dir}")
-            print(f"[PHtmlWin] 管理员模式：IME 修复已启用")
+            _plog.info(f"管理员模式：WebView2 用户数据目录 -> {user_data_dir}")
+            _plog.info("管理员模式：IME 修复已启用")
 
         # v1.3.0b：不再拦截关闭事件 —— 点窗口 × 即真正退出（进程结束）。
         # 修复上一版「关闭/退出均失效」：拦截+hide 导致窗口假死、destroy 也被拦。
@@ -508,8 +571,8 @@ class Win:
             import sys
             import traceback
             import os
-            print(f"[PHtmlWin] WebView2 initialization failed: {e}", file=sys.stderr)
-            print("[PHtmlWin] Falling back to browser mode...", file=sys.stderr)
+            _plog.error(f"WebView2 initialization failed: {e}")
+            _plog.info("Falling back to browser mode...")
             try:
                 ant_home = os.environ.get("ANT_HOME") or os.path.join(
                     os.path.dirname(os.path.abspath(__file__)), ".antnest")
@@ -582,7 +645,7 @@ class Win:
 
         srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         port = srv.server_address[1]
-        print(f"PHtmlWin → http://127.0.0.1:{port}  (正在打开浏览器)")
+        _plog.info(f"PHtmlWin → http://127.0.0.1:{port}  (正在打开浏览器)")
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
             webbrowser.open(f"http://127.0.0.1:{port}/")

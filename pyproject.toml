@@ -15,6 +15,25 @@ antnest = "antnest_launcher:run"
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+  "antnest_errors",
+  "antnest_config_schema",
+  "antnest_log",
+  "antnest_ui_pure",
+  "ui_render",
+]
+disallow_untyped_defs = true
+disallow_any_generics = false
+
 [tool.setuptools]
 py-modules = [
   "prototype_antnest",
@@ -43,6 +62,10 @@ py-modules = [
   "antnest_loop",
   "antnest_toolforge",
   "model_capabilities",
+  "antnest_log",
+  "antnest_errors",
+  "antnest_config_schema",
+  "antnest_ui_pure",
 ]
 [tool.setuptools.package-data]
 "*" = ["ui_assets/*", "prompts/*"]

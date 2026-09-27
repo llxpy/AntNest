@@ -18,6 +18,8 @@ from pathlib import Path
 import code_tools as ct
 import antnest_clone_worker
 import admin_utils
+import antnest_log
+_qlog = antnest_log.get_logger("queen")
 
 
 def _A():
@@ -215,11 +217,11 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
         with open(cmd_file, "w", encoding="utf-8") as f:
             f.write(command)
         use_cmd_file = True
-        print(f"[警告] 命令长度 {len(command)} 字符，改用文件传递")
+        _qlog.warning(f"命令长度 {len(command)} 字符，改用文件传递")
     else:
         use_cmd_file = False
 
-    print(f"\n[工蚁] {label or clone_id} → {clone_dir}")
+    _qlog.info(f"[工蚁] {label or clone_id} → {clone_dir}")
 
     try:
         env = os.environ.copy()
@@ -316,7 +318,7 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
             except Exception:
                 pass
 
-        print(f"[工蚁] {label or clone_id} 完成 (exit={proc.returncode})")
+        _qlog.info(f"[工蚁] {label or clone_id} 完成 (exit={proc.returncode})")
 
         # ====== 任务状态更新 ======
         try:
@@ -354,7 +356,7 @@ def spawn_clone(command: str, timeout: int = 0, label: str = "", verify: bool = 
                 except Exception:
                     pass
             except Exception as e:
-                print(f"[验证] 验证工蚁异常：{e}")
+                _qlog.error(f"验证工蚁异常：{e}")
 
         return result
 

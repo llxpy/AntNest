@@ -42,8 +42,12 @@ import uuid
 from pathlib import Path
 
 
-class McpError(Exception):
-    pass
+from antnest_errors import AntNestError
+
+
+class McpError(AntNestError):
+    default_code = "MCP-001"
+    default_user_msg = "MCP 调用失败"
 
 
 def _json_lines_response(raw: str):
@@ -532,8 +536,8 @@ class McpHub:
                 self.server_status[name] = "ready"
             except Exception as e:
                 self.server_status[name] = "failed"
-                import sys
-                print(f"[MCP] server '{name}' init failed: {e}", file=sys.stderr)
+                import antnest_log
+                antnest_log.get_logger("mcp").error(f"server '{name}' init failed: {e}")
 
     def call(self, server: str, tool: str, arguments: dict | None = None) -> str:
         sess = self.sessions.get(server)

@@ -9,6 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import antnest_log
+_sess_log = antnest_log.get_logger("session")
+
 
 def get_session_file(project_dir: str, session_dir: str, session_id: str = "default") -> str:
     """会话文件路径：<session_dir>/<dir_hash>/<session_id>.json（一个项目多份会话）。"""
@@ -46,8 +49,8 @@ def acquire_lock(project_dir: str, session_dir: str, is_windows: bool) -> None:
             else:
                 alive = os.path.exists(f"/proc/{pid}")
             if alive:
-                print(f"错误：该目录已有 AntNest 实例运行（PID: {pid}），不允许重复启动。")
-                print(f"如需强制启动，请先删除锁文件：{lock_file}")
+                _sess_log.error(f"该目录已有 AntNest 实例运行（PID: {pid}），不允许重复启动")
+                _sess_log.info(f"如需强制启动，请先删除锁文件：{lock_file}")
                 sys.exit(1)
         except Exception:
             pass
@@ -68,7 +71,7 @@ def save_session(messages, project_dir: str, session_dir: str, session_id: str =
     os.makedirs(os.path.dirname(session_file), exist_ok=True)
     with open(session_file, "w", encoding="utf-8") as f:
         json.dump(messages, f, ensure_ascii=False, indent=2)
-    print(f"\n> 会话已保存到：{session_file}")
+    _sess_log.info(f"会话已保存到：{session_file}")
 
 
 def load_session(
@@ -107,7 +110,7 @@ def load_session(
             if not last_msg["content"]:
                 del messages[-1]
         size_KB = (os.path.getsize(session_file) + 999) // 1000
-        print(f"\n> 会话已从文件加载：{session_file} ({format(size_KB, ',')} KB)")
+        _sess_log.info(f"会话已从文件加载：{session_file} ({format(size_KB, ',')} KB)")
         return messages
     except Exception:
         return None
@@ -160,24 +163,22 @@ def _session_meta(path, sid):
 def list_sessions(project_dir: str, session_dir: str) -> None:
     session_file = get_session_file(project_dir, session_dir)
     session_name = os.path.basename(session_file)
-    print(f"目录: {session_dir}\n")
+    _sess_log.info(f"目录: {session_dir}")
     if not os.path.exists(session_dir):
-        print("> 没有找到任何会话记录。")
+        _sess_log.info("没有找到任何会话记录")
         return
 
     files = [f for f in os.listdir(session_dir) if f.endswith(".json")]
     if not files:
-        print("> 没有找到任何会话记录。")
+        _sess_log.info("没有找到任何会话记录")
         return
 
-    print(f"> 共找到 {len(files)} 个会话:")
-    print("-" * 60)
+    _sess_log.info(f"共找到 {len(files)} 个会话")
     for i, f in enumerate(sorted(files), start=1):
         path = os.path.join(session_dir, f)
         size_KB = (os.path.getsize(path) + 999) // 1000
         marker = "    <=== 当前目录" if f == session_name else ""
-        print(f"  {i}. {f} ({format(size_KB, ',')} KB){marker}")
-    print("-" * 60)
+        _sess_log.info(f"  {i}. {f} ({format(size_KB, ',')} KB){marker}")
 
 
 def clear_session(project_dir: str, session_dir: str) -> None:
@@ -185,11 +186,11 @@ def clear_session(project_dir: str, session_dir: str) -> None:
     if os.path.exists(session_file):
         try:
             os.remove(session_file)
-            print(f"> 已清除会话：{session_file}")
+            _sess_log.info(f"已清除会话：{session_file}")
         except Exception as e:
-            print(f"> 清除会话失败：{e}")
+            _sess_log.error(f"清除会话失败：{e}")
     else:
-        print(f"> 会话不存在：{session_file}")
+        _sess_log.warning(f"会话不存在：{session_file}")
 
 
 def delete_session(project_dir: str, session_dir: str, session_id: str) -> bool:

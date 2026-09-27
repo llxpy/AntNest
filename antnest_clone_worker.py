@@ -10,6 +10,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import antnest_log
+_wlog = antnest_log.get_logger("worker")
+
 
 def _pump_limited(stream, cap: int):
     """读管道直到 EOF，最多保留 cap 字节（超限丢弃后续，继续 drain 防子进程阻塞）。"""
@@ -108,7 +111,7 @@ def run_if_clone_mode() -> None:
                "AN_CLONE_DIR", "AN_RESULT_FILE", "AN_CLONE_TIMEOUT", "AN_DEPTH"):
         run_env.pop(_k, None)
 
-    print(f"[工蚁] 开始执行: {clone_command[:100]}...")
+    _wlog.info(f"开始执行: {clone_command[:100]}...")
 
     cmd_lower = clone_command.lower()
     # 低严谨度命令已整体 lower，故模式用小写；覆盖范围与蚁后 _DANGER_CLI_PATTERNS 对齐：
@@ -137,7 +140,7 @@ def run_if_clone_mode() -> None:
             if result_file:
                 with open(result_file, "w", encoding="utf-8") as f:
                     json.dump(output, f, ensure_ascii=False, indent=2)
-            print(f"[工蚁] 拦截：{desc}")
+            _wlog.warning(f"拦截危险命令：{desc}")
             sys.exit(0)
 
     try:
@@ -215,5 +218,5 @@ def run_if_clone_mode() -> None:
         with open(result_file, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"[工蚁] 完成，exit_code={output.get('exit_code', 'N/A')}")
+    _wlog.info(f"完成，exit_code={output.get('exit_code', 'N/A')}")
     sys.exit(0)

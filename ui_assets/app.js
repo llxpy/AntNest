@@ -15,10 +15,62 @@ function setStopEnabled(on){
   var b=document.getElementById("btn-stop");
   if(b) b.disabled=!on;
 }
-function scrollChat(){
-  var b=document.querySelector("#chat-msgs");
-  if(b) b.scrollTop=b.scrollHeight;
+var _chatUserNearBottom=true;
+function scrollChat(){
+  var b=document.querySelector("#chat-msgs");
+  if(b&&_chatUserNearBottom) b.scrollTop=b.scrollHeight;
+}
+
+// ===== 拖放：文件拖入聊天 =====
+
+var _dragDepth=0;
+
+function initChatDragDrop(){
+  var col=document.querySelector(".chat-col");
+  if(!col) return;
+  window.addEventListener("dragover", function(e){ e.preventDefault(); }, false);
+  window.addEventListener("drop", function(e){ e.preventDefault(); }, false);
+  col.addEventListener("dragenter", function(e){
+    var dt=e.dataTransfer; if(!dt || !dt.types) return;
+    var has=false;
+    for(var k=0;k<dt.types.length;k++){ if(dt.types[k]==="Files"){ has=true; break; } }
+    if(!has) return;
+    e.preventDefault(); _dragDepth++;
+    col.classList.add("drag-over");
+  });
+  col.addEventListener("dragleave", function(){
+    _dragDepth=Math.max(0,_dragDepth-1);
+    if(!_dragDepth) col.classList.remove("drag-over");
+  });
+  col.addEventListener("drop", function(e){
+    e.preventDefault(); _dragDepth=0;
+    col.classList.remove("drag-over");
+    var fs=e.dataTransfer && e.dataTransfer.files;
+    if(!fs || !fs.length) return;
+    var ta=document.getElementById("chat-input");
+    var attached=false, names=[];
+    for(var k=0;k<fs.length;k++){
+      var f=fs[k];
+      if(f.type && f.type.indexOf("image/")===0){
+        if(!attached && canAttachImage()){ attachImage(f); attached=true; }
+        else names.push(f.name);
+      } else { names.push(f.name); }
+    }
+    if(names.length && ta){
+      ta.value += (ta.value ? "\n" : "") + names.map(function(n){ return "[文件] " + n; }).join("\n");
+      phwCall("chat_input",{value:ta.value});
+      autoGrowInput(ta);
+      ta.focus();
+    }
+  });
 }
+(function(){
+  var b=document.querySelector("#chat-msgs");
+  if(!b)return;
+  b.addEventListener("scroll",function(){
+    _chatUserNearBottom=(b.scrollHeight-b.scrollTop-b.clientHeight)<100;
+  });
+})();
 var streamBubbleEl=null;
 var QUEEN_AVATAR_HTML='<span class="avatar queen-avatar">'
   +'<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">'
@@ -98,7 +150,17 @@ function phwCall(route, payload){
   console.warn("[phwCall] window.PHW 未就绪，回退 fetch（webview 模式下会失败）");
   fetch("/api/route",{method:"POST",headers:{"Content-Type":"application/json"},
        body:JSON.stringify({route:route,data:payload||{}})});
-}
+}
+// 自绘标题栏窗口控制（frameless）：最小化/最大化/关闭。
+// 浏览器模式无此能力，静默返回。
+function winCtrl(action){
+  if(window.pywebview && window.pywebview.api && window.pywebview.api.win){
+    window.pywebview.api.win(action);
+  }else{
+    console.log("[winCtrl]", action, "(browser/legacy mode, no-op)");
+  }
+}
+
 var selectedSkill="";
 var selectedImage=null; // {b64, mime}
 function onSkillChange(v){
@@ -226,7 +288,7 @@ function openRelease(){
 }
 function checkForUpdate(){
   var btn=document.getElementById("btn-check-update");
-  if(btn){btn.textContent="检查中..."; btn.disabled=true;}
+  if(btn){btn.querySelector(".btn-lbl").textContent="检查中..."; btn.disabled=true;}
   phwCall("check_update",{});
 }
 function onSend(){
@@ -236,6 +298,7 @@ function onSend(){
   console.log("[onSend] value=", v, " skill=", selectedSkill, " image=", !!selectedImage);
   if(!v && !selectedImage){ console.log("[onSend] 空消息，忽略"); return; }
   i.value="";
+  autoGrowInput(i);  // 发送后恢复单行高
   var payload={value:v, skill:selectedSkill};
   if(selectedImage && canAttachImage()){ payload.image_b64=selectedImage.b64; payload.image_mime=selectedImage.mime; }
   selectedImage=null;
@@ -412,7 +475,7 @@ function collectSettings(){
   syncAllToggles();
   var settings={};
   ["llm_base_url","llm_model","llm_api_key","thinking_mode","skip_model_check","max_depth","max_clones",
-   "mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
+   "temperature","compact_threshold","worker_timeout","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
     var el=document.getElementById("set-"+k);
     if(el)settings[k]=el.value;
   });
@@ -456,7 +519,7 @@ function onSaveSettings(){
   syncAllToggles();
   var settings={};
   var appearance={};
-  ["llm_base_url","llm_model","llm_api_key","thinking_mode","skip_model_check","max_depth","max_clones","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
+  ["llm_base_url","llm_model","llm_api_key","thinking_mode","skip_model_check","max_depth","max_clones","temperature","compact_threshold","worker_timeout","mcp_enabled","mcp_config","skills_enabled","skills_dir"].forEach(function(k){
     var el=document.getElementById("set-"+k);
     if(el)settings[k]=el.value;
   });
@@ -530,20 +593,35 @@ function onModelChange(v){
   if(!v || v==="") return;
   phwCall("pick_model",{value:v});
 }
-function setModelSelect(v){
-  var s=document.getElementById("model-select");
-  if(s) s.value=v||"";
+function setModelSelect(v){
+  var s=document.getElementById("model-select");
+  if(!s) return;
+  v=v||"";
+  var has=false;
+  for(var k=0;k<s.options.length;k++){ if(s.options[k].value===v){ has=true; break; } }
+  if(!has && v){
+    var o=document.createElement("option");
+    o.value=v; o.textContent=v;
+    s.appendChild(o);
+  }
+  s.value=v;
 }
-function refreshModelSelect(){
-  var s=document.getElementById("model-select");
-  if(!s) return;
-  var cur=s.value;
-  var opts=(window.MODEL_OPTIONS||[]).filter(function(x){return x && x.trim();});
-  if(opts.indexOf(cur)===-1 && cur) opts.push(cur);
-  s.innerHTML=opts.map(function(m){
-    var sel=(m===cur)?" selected":"";
-    return '<option value="'+m+'"'+sel+'>'+m+'</option>';
-  }).join("");
+function refreshModelSelect(){
+  var s=document.getElementById("model-select");
+  if(!s) return;
+  var cur=s.value || "";
+  var opts=(window.MODEL_OPTIONS||[]).filter(function(x){return x && x.trim();});
+  if(cur && cur!=="选择模型" && opts.indexOf(cur)===-1) opts.push(cur);
+  if(!opts.length){
+    s.innerHTML='<option value="">选择模型</option>';
+    return;
+  }
+  s.innerHTML=opts.map(function(m){
+    var sel=(m===cur)?" selected":"", o;
+    o='<option value="'+m+'"'+sel+'>'+m+"</option>";
+    return o;
+  }).join("");
+  if(opts.indexOf(cur)===-1) s.value=opts[0];
 }
 
 // ===== 工作空间（可折叠左侧栏）=====
@@ -601,10 +679,14 @@ function autoGrowInput(el){
   el.style.height = Math.min(el.scrollHeight, 120) + "px";
 }
 // 初始化时增高一次
-(function(){
-  var i = document.getElementById("chat-input");
-  if(i && i.tagName === "TEXTAREA"){ autoGrowInput(i); }
-})();
+(function(){
+  var i=document.getElementById("chat-input");
+  if(i && i.tagName === "TEXTAREA"){
+    autoGrowInput(i);
+    i.addEventListener("input", function(){ autoGrowInput(i); });
+    initChatDragDrop();
+  }
+})();
 
 // ===== 工作空间文件预览 =====
 function renderWsPreview(path, files){
@@ -621,3 +703,102 @@ function wsPreviewEnter(){
   var tt=document.getElementById("ws-preview-title");
   if(tt && tt.textContent) switchWorkspace(tt.textContent.trim());
 }
+
+
+// ===== 实时耗时 ticker（工蚁卡/子任务 data-since）=====
+
+function fmtDur(sec){
+  sec=Math.max(0,Math.floor(sec));
+  if(sec<60) return sec+"s";
+  var m=Math.floor(sec/60), s=sec%60;
+  if(m<60) return m+"m"+(s<10?"0":"")+s+"s";
+  var h=Math.floor(m/60);
+  return h+"h"+(m%60<10?"0":"")+(m%60)+"m";
+}
+
+setInterval(function(){
+  var els=document.querySelectorAll("[data-since]");
+  if(!els.length) return;
+  var now=Date.now();
+  for(var k=0;k<els.length;k++){
+    var t=parseFloat(els[k].getAttribute("data-since"));
+    if(!t) continue;
+    els[k].textContent=fmtDur((now-t)/1000);
+  }
+},1000);
+
+
+// ===== 气泡复制（事件委托，容器 innerHTML 刷新不影响）=====
+
+(function(){
+  var box=document.getElementById("chat-msgs");
+  if(!box) return;
+  function fallbackCopy(txt){
+    var ta=document.createElement("textarea");
+    ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); }catch(err){}
+    document.body.removeChild(ta);
+  }
+  box.addEventListener("click", function(e){
+    var btn=e.target && e.target.closest ? e.target.closest(".msg-copy") : null;
+    if(!btn) return;
+    var b=btn.closest(".bubble"); if(!b) return;
+    var t=b.querySelector(".bubble-text"); if(!t) return;
+    var txt=t.innerText||"";
+    var done=function(){ btn.classList.add("copied"); setTimeout(function(){ btn.classList.remove("copied"); },1200); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(done, function(){ fallbackCopy(txt); done(); });
+    } else { fallbackCopy(txt); done(); }
+  });
+})();
+
+
+// ===== frameless 拖动区：顶栏交互元素豁免（pywebview 靠冒泡找 .pywebview-drag-region）=====
+
+(function(){
+  var bar=document.querySelector(".topbar");
+  if(!bar) return;
+  var els=bar.querySelectorAll("button,select,input,textarea,a,.win-ctrl");
+  for(var k=0;k<els.length;k++){
+    els[k].addEventListener("mousedown", function(e){ e.stopPropagation(); });
+  }
+})();
+
+
+// ===== 设置页：分区切换 + 密码显隐 =====
+
+function showSettingsPanel(key){
+  var rail=document.querySelectorAll("#settings-rail .rail-item");
+  for(var k=0;k<rail.length;k++){ rail[k].classList.toggle("active", rail[k].getAttribute("data-panel")===key); }
+  var ps=document.querySelectorAll("#settings-panels .settings-panel");
+  for(var j=0;j<ps.length;j++){ ps[j].classList.toggle("active", ps[j].getAttribute("data-panel")===key); }
+}
+
+function revealPassword(key){
+  var inp=document.getElementById("set-"+key); if(!inp) return;
+  var show=inp.type==="password";
+  inp.type=show?"text":"password";
+  var b=inp.parentNode.querySelector(".pw-eye"); if(b) b.classList.toggle("on", show);
+}
+
+
+// ===== 设置：服务商预设 + 打开配置目录 =====
+
+function applyPreset(name){
+  var P={
+    deepseek:["https://api.deepseek.com/v1","deepseek-chat"],
+    minimax:["https://api.minimaxi.com/v1","MiniMax-M2"],
+    openai:["https://api.openai.com/v1","gpt-4o-mini"],
+    moonshot:["https://api.moonshot.cn/v1","kimi-k2-0905-preview"],
+    openrouter:["https://openrouter.ai/api/v1",""],
+    ollama:["http://127.0.0.1:11434/v1","qwen3:8b"]
+  }[name];
+  if(!P) return;
+  var b=document.getElementById("set-llm_base_url"), m=document.getElementById("set-llm_model");
+  if(b && P[0]) b.value=P[0];
+  if(m && P[1]) m.value=P[1];
+  setVerifyHint("已填入预设，请补 API Key 后点「测试连接」","");
+}
+
+function openCfgDir(key){ phwCall("open_path",{key:key}); }

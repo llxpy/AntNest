@@ -41,3 +41,8 @@ AntNest_v*.exe
 # Kun 工作区产物（画布/设计中间文件，非项目源码）
 .kun-canvas/
 .kun-design/
+
+# 本地调试脚本与产物（临时 UI 抓取用，非项目源码）
+r_seg.py
+r_seg.txt
+tools/_settings_render.html

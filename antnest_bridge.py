@@ -278,6 +278,9 @@ def load_settings():
         "skip_model_check": str(api.get("skip_model_check", False)).lower(),
         "max_depth": str(agent.get("max_depth", 2)),
         "max_clones": fmt_max_clones(agent.get("max_clones", {})),
+        "temperature": str(api.get("temperature", 0.6)),
+        "compact_threshold": str(agent.get("compact_threshold", 0.85)),
+        "worker_timeout": str(agent.get("worker_timeout", 300)),
     }
     for k in _UI_ONLY_SETTING_KEYS:
         if k == "skills_dir":
@@ -317,6 +320,21 @@ def save_settings(settings, appearance):
                 trace("S0", "warn", f"max_depth 非法：{settings['max_depth']}，保留原值")
         if "max_clones" in settings:
             agent["max_clones"] = parse_max_clones(settings["max_clones"])
+        if "temperature" in settings:
+            try:
+                api["temperature"] = max(0.0, min(2.0, float(str(settings["temperature"]).strip() or 0.6)))
+            except (TypeError, ValueError):
+                trace("S0", "warn", f"temperature 非法：{settings['temperature']}，保留原值")
+        if "compact_threshold" in settings:
+            try:
+                agent["compact_threshold"] = max(0.1, min(1.0, float(str(settings["compact_threshold"]).strip() or 0.85)))
+            except (TypeError, ValueError):
+                trace("S0", "warn", f"compact_threshold 非法：{settings['compact_threshold']}，保留原值")
+        if "worker_timeout" in settings:
+            try:
+                agent["worker_timeout"] = max(1, min(3600, int(str(settings["worker_timeout"]).strip() or 300)))
+            except (TypeError, ValueError):
+                trace("S0", "warn", f"worker_timeout 非法：{settings['worker_timeout']}，保留原值")
         agent.setdefault("compact_threshold", 0.85)
         agent.setdefault("tool_result_max_len", 8000)
 
@@ -469,6 +487,9 @@ def push_env(settings):
         "ANT_API_KEY": (settings.get("llm_api_key") or "").strip(),
         "ANT_THINKING_MODE": (settings.get("thinking_mode") or "").strip(),
         "ANT_SKIP_MODEL_CHECK": (settings.get("skip_model_check") or "").strip(),
+        "ANT_TEMPERATURE": (settings.get("temperature") or "").strip(),
+        "ANT_COMPACT_THRESH": (settings.get("compact_threshold") or "").strip(),
+        "ANT_WORKER_TIMEOUT": (settings.get("worker_timeout") or "").strip(),
     }
     changed = []
     for k, v in mapping.items():
@@ -826,6 +847,22 @@ class AntNestCore:
                 m.SKIP_MODEL_CHECK = str(settings["skip_model_check"]).lower() in (
                     "true", "1", "yes", "on"
                 )
+            if settings.get("temperature"):
+                try:
+                    import antnest_llm as _al
+                    _al.DEFAULT_TEMPERATURE = max(0.0, min(2.0, float(str(settings["temperature"]).strip())))
+                except (TypeError, ValueError, ImportError):
+                    trace("S3", "warn", f"temperature 热应用失败：{settings.get('temperature')}")
+            if settings.get("compact_threshold"):
+                try:
+                    m.COMPACT_THRESH = max(0.1, min(1.0, float(str(settings["compact_threshold"]).strip())))
+                except (TypeError, ValueError, AttributeError):
+                    trace("S3", "warn", f"compact_threshold 热应用失败：{settings.get('compact_threshold')}")
+            if settings.get("worker_timeout"):
+                try:
+                    m.DEFAULT_WORKER_TIMEOUT = max(1, min(3600, int(str(settings["worker_timeout"]).strip())))
+                except (TypeError, ValueError, AttributeError):
+                    trace("S3", "warn", f"worker_timeout 热应用失败：{settings.get('worker_timeout')}")
             trace("S3", "info", f"热应用：{m.ANT_MODEL_NAME} @ {m.ANT_BASE_URL} depth<={m.MAX_DEPTH}")
             self._init_mcp(self._ui_settings)
         except Exception as e:

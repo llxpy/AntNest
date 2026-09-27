@@ -5,31 +5,31 @@ cd /d "%~dp0"
 
 echo.
 echo  ========================================
-echo   AntNest ÕýÔÚÆô¶¯...
+echo   AntNest ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
 echo  ========================================
 echo.
 
 if exist ".venv\Scripts\pythonw.exe" (
-  echo  Ê¹ÓÃ±¾µØ .venv£¨pythonw£¬ÎÞ¿ØÖÆÌ¨´°¿Ú£©...
+  echo  Ê¹ï¿½Ã±ï¿½ï¿½ï¿½ .venvï¿½ï¿½pythonwï¿½ï¿½ï¿½Þ¿ï¿½ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½Ú£ï¿½...
   echo.
   start "" ".venv\Scripts\pythonw.exe" prototype_antnest.py
   goto :done
 )
 
 if exist ".venv\Scripts\python.exe" (
-  echo  Ê¹ÓÃ±¾µØ .venv£¨python£¬±£Áô´°¿Ú¿´Êä³ö£©...
+  echo  Ê¹ï¿½Ã±ï¿½ï¿½ï¿½ .venvï¿½ï¿½pythonï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
   echo.
   ".venv\Scripts\python.exe" prototype_antnest.py
   goto :done
 )
 
-echo  Ê×´ÎÆô¶¯ÐèÍ¨¹ý uv °²×°ÒÀÀµ£¬Ô¼ 1~3 ·ÖÖÓ£¬ÇëÉÔºò...
+echo  ï¿½×´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¨ï¿½ï¿½ uv ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô¼ 1~3 ï¿½ï¿½ï¿½Ó£ï¿½ï¿½ï¿½ï¿½Ôºï¿½...
 echo.
 start "" /min cmd /c "uv sync --project "%~dp0" && "%~dp0.venv\Scripts\pythonw.exe" "%~dp0prototype_antnest.py""
 
 :done
 if errorlevel 1 (
   echo.
-  echo  Æô¶¯Ê§°Ü¡£Çë²é¿´ .antnest\startup_error.log
+  echo  ï¿½ï¿½ï¿½ï¿½Ê§ï¿½Ü¡ï¿½ï¿½ï¿½é¿´ .antnest\startup_error.log
   pause
 )

@@ -79,8 +79,9 @@
 html,body{height:100%; user-select:text; -webkit-user-select:text}
 body{
   margin:0; color:var(--text); display:flex; flex-direction:column; height:100vh;
-  font-family:"SF Pro Display","Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-family:"Segoe UI Variable Text","Segoe UI","SF Pro Display",-apple-system,BlinkMacSystemFont,Roboto,"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
   font-size:14px; line-height:1.55; letter-spacing:0.01em;
+  font-synthesis:none;
   -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
   background:
     radial-gradient(800px 500px at 85% -10%, rgba(76,201,240,0.07), transparent 55%),
@@ -96,7 +97,32 @@ body{
   background:var(--topbar-bg); backdrop-filter:blur(16px) saturate(1.4);
   -webkit-backdrop-filter:blur(16px) saturate(1.4);
   flex-shrink:0; position:relative; z-index:10;
+  /* frameless 窗口：顶栏空白为拖动区；交互元素单独标 no-drag（见下） */
+  -webkit-app-region:drag; app-region:drag;
 }
+.topbar button,
+.topbar select,
+.topbar input,
+.topbar .skill-select,
+.topbar .tag{
+  -webkit-app-region:no-drag; app-region:no-drag;
+}
+
+/* ── 自绘窗口控制按钮（frameless 模式）── */
+.win-ctrl{
+  -webkit-app-region:no-drag; app-region:no-drag;
+  display:flex; align-items:stretch; margin:0 -22px 0 6px; align-self:stretch;
+}
+.win-btn{
+  width:44px; border:none; background:transparent; color:var(--muted);
+  display:flex; align-items:center; justify-content:center; cursor:default;
+  transition:background 0.15s ease, color 0.15s ease; outline:none;
+}
+.win-btn:hover{background:rgba(255,255,255,0.07); color:var(--text)}
+.win-btn:active{background:rgba(255,255,255,0.10)}
+.win-btn-close:hover{background:#e81123; color:#fff}
+.win-btn-close:active{background:#bf0f1d}
+@media (prefers-reduced-motion: reduce){.win-btn{transition:none}}
 .brand{
   display:flex; align-items:center; font-size:18px; font-weight:700;
   letter-spacing:0.5px; color:var(--text);
@@ -173,7 +199,7 @@ body{
 /* ================================================================
    Chat column
    ================================================================ */
-.chat-col{display:flex; flex-direction:column; min-height:0}
+.chat-col{display:flex; flex-direction:column; min-height:0; position:relative}
 .chat{display:flex; flex-direction:column; min-height:0; flex:1; margin-bottom:0}
 .chat-msgs{
   flex:1; overflow:auto; display:flex; flex-direction:column;
@@ -297,9 +323,13 @@ body{
 .chat-input{
   flex:1; background:rgba(255,255,255,0.04);
   border:1px solid var(--card-border); border-radius:var(--radius-md);
-  padding:10px 42px 10px 14px; color:var(--text); font-size:14px;
+  padding:9px 42px 9px 12px; color:var(--text); font-size:14px;
   outline:none; user-select:text; -webkit-user-select:text;
   transition:border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  min-height:38px; max-height:120px;
+  line-height:1.5; box-sizing:border-box;
+  resize:none; overflow-y:auto;
+  white-space:pre-wrap; word-break:break-word; font-family:inherit;
 }
 .chat-input::placeholder{color:var(--muted); opacity:0.7}
 .chat-input:hover{background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.10)}
@@ -501,13 +531,38 @@ body{
 .settings-sub{margin:6px 0 0; font-size:13px; color:var(--muted); line-height:1.6}
 
 .settings-body{
-  flex:1; overflow-y:auto; padding:20px 28px 12px;
+  flex:1; min-height:0; display:flex; overflow:hidden; padding:0;
+}
+.settings-rail{
+  width:170px; flex-shrink:0; display:flex; flex-direction:column; gap:2px;
+  padding:14px 10px; border-right:1px solid var(--card-border);
+  background:rgba(255,255,255,0.015); overflow-y:auto;
+}
+.rail-item{
+  display:flex; align-items:center; gap:9px; padding:9px 12px;
+  border:none; border-left:2px solid transparent; border-radius:var(--radius-sm);
+  background:transparent; color:var(--muted); font-size:12.5px; text-align:left;
+  cursor:pointer; transition:all 0.15s ease; white-space:nowrap;
+}
+.rail-item svg{flex-shrink:0; opacity:0.75}
+.rail-item:hover{color:var(--text); background:rgba(255,255,255,0.04)}
+.rail-item.active{
+  color:var(--accent); background:rgba(76,201,240,0.08);
+  border-left-color:var(--accent); font-weight:600;
+}
+.rail-item.active svg{opacity:1}
+.settings-panels{
+  flex:1; min-width:0; overflow-y:auto; padding:20px 24px 14px;
   display:flex; flex-direction:column; gap:14px;
   scrollbar-width:thin; scrollbar-color:rgba(255,255,255,0.08) transparent;
 }
-.settings-body::-webkit-scrollbar{width:5px}
-.settings-body::-webkit-scrollbar-track{background:transparent}
-.settings-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08); border-radius:3px}
+.settings-panels::-webkit-scrollbar{width:5px}
+.settings-panels::-webkit-scrollbar-track{background:transparent}
+.settings-panels::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08); border-radius:3px}
+.settings-panel{display:none}
+.settings-panel.active{display:block; animation:panelIn 0.18s ease-out}
+@keyframes panelIn{from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){.settings-panel.active{animation:none}}
 
 .settings-section{
   border:1px solid var(--card-border); border-radius:var(--radius-lg);
@@ -557,6 +612,110 @@ body{
 .browse-row{display:flex; gap:10px; align-items:stretch}
 .browse-row input{flex:1; min-width:0}
 .browse-row .btn{flex-shrink:0; padding:10px 14px; white-space:nowrap; border-radius:var(--radius-sm)}
+
+.section-actions{
+  display:flex; gap:8px; margin-top:14px; padding-top:12px;
+  border-top:1px dashed var(--card-border);
+}
+.pw-row{display:flex; gap:8px; align-items:stretch}
+.pw-row input{flex:1; min-width:0}
+.pw-eye{
+  width:40px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--card-border); border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.04); color:var(--muted); cursor:pointer;
+  transition:all 0.15s;
+}
+.pw-eye:hover{color:var(--text); background:rgba(255,255,255,0.07)}
+.pw-eye.on{color:var(--accent)}
+
+/* ── 服务商预设 / 路径 / MCP 清单 ── */
+.preset-row{display:flex; flex-wrap:wrap; gap:8px}
+.chip{
+  border:1px solid var(--card-border); background:rgba(255,255,255,0.03);
+  color:var(--text); font-size:12px; border-radius:999px; padding:5px 12px;
+  cursor:pointer; transition:all 0.15s;
+}
+.chip:hover{border-color:rgba(76,201,240,0.45); background:rgba(76,201,240,0.08); color:var(--accent)}
+.path-list{display:flex; flex-direction:column; gap:6px}
+.path-item{
+  display:flex; align-items:center; gap:10px; padding:8px 12px;
+  border:1px solid var(--card-border); border-radius:var(--radius-sm);
+  background:rgba(255,255,255,0.02);
+}
+.path-item .path-name{font-size:12px; font-weight:600; white-space:nowrap}
+.path-item .path-dir{
+  flex:1; min-width:0; font-family:ui-monospace,Consolas,monospace; font-size:11px;
+  color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.path-item .btn{flex-shrink:0; padding:5px 10px; font-size:12px}
+.mcp-list{display:flex; flex-wrap:wrap; gap:6px}
+.mcp-chip{
+  font-family:ui-monospace,Consolas,monospace; font-size:11.5px;
+  color:var(--text); background:rgba(255,255,255,0.04);
+  border:1px solid var(--card-border); border-radius:6px; padding:4px 10px;
+  cursor:default;
+}
+.mcp-note{font-size:12px; color:var(--muted); line-height:1.6}
+.empty-art{display:block; margin:0 auto 8px; opacity:0.55; color:var(--accent)}
+
+/* ── Composer：一体化输入卡（textarea 无边框 + 底部工具条）── */
+.chat-input-row{margin-top:10px; display:block; flex:none}
+.composer{
+  border:1px solid var(--card-border); border-radius:14px;
+  background:rgba(255,255,255,0.03);
+  transition:border-color 0.2s, box-shadow 0.2s;
+  overflow:hidden;
+}
+.composer:focus-within{
+  border-color:rgba(76,201,240,0.50);
+  box-shadow:0 0 0 3px rgba(76,201,240,0.08);
+}
+.chat-input-row .composer .chat-input,
+.chat-input-row .composer .chat-input:hover,
+.chat-input-row .composer .chat-input:focus{
+  border:none; background:transparent; box-shadow:none; outline:none;
+  padding:12px 14px 4px; min-height:46px; max-height:180px; display:block; width:100%;
+}
+.composer-bar{
+  display:flex; align-items:center; gap:4px; padding:4px 10px 10px;
+}
+.composer-bar .spacer{flex:1}
+.chat-input-row .composer-bar #image-upload-btn{
+  width:30px; height:30px; flex-shrink:0;
+  border:none; background:transparent; color:var(--muted);
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; border-radius:8px; padding:0; transition:all 0.15s;
+  position:static;
+}
+.chat-input-row .composer-bar #image-upload-btn:hover{color:var(--accent); background:rgba(76,201,240,0.08)}
+.chat-input-row .composer-bar #image-upload-btn:disabled{opacity:0.35; cursor:not-allowed}
+.chat-input-row .composer-bar .skill-select,
+.chat-input-row .composer-bar .model-select{
+  border:none; background:transparent; color:var(--muted);
+  padding:5px 20px 5px 8px; font-size:12.5px; max-width:200px;
+  min-height:30px; cursor:pointer; border-radius:8px; line-height:1.5;
+  box-shadow:none; outline:none;
+  transition:all 0.15s;
+}
+.chat-input-row .composer-bar .skill-select:hover,
+.chat-input-row .composer-bar .model-select:hover{
+  color:var(--text); background:rgba(255,255,255,0.05);
+}
+.chat-input-row .composer-bar .skill-select:focus,
+.chat-input-row .composer-bar .model-select:focus{
+  color:var(--text); background:rgba(255,255,255,0.05); box-shadow:none;
+}
+.composer-send{
+  width:34px; height:34px; flex-shrink:0; border:none; border-radius:50%;
+  background:var(--accent); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; padding:0;
+  box-shadow:0 2px 10px rgba(76,201,240,0.30);
+  transition:all 0.15s ease;
+}
+.composer-send:hover{filter:brightness(1.1); box-shadow:0 3px 14px rgba(76,201,240,0.45); transform:translateY(-1px)}
+.composer-send:active{transform:scale(0.94)}
+.composer-send svg{width:16px; height:16px}
 
 /* ── Toggle switch ── */
 .toggle-row{
@@ -879,7 +1038,11 @@ body{
 .settings-card{width:min(560px,92vw); max-width:none; height:100vh; max-height:100vh; border-radius:18px 0 0 18px; border-right:0; animation:drawerIn .24s cubic-bezier(.2,.8,.2,1);}
 @keyframes drawerIn{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
 .settings-header{padding:26px 28px 20px;}
-.settings-body{padding:22px 28px 18px;}
+.settings-body{flex-direction:column;}
+.settings-rail{width:auto; flex-direction:row; overflow-x:auto; overflow-y:hidden; padding:10px 14px; border-right:0; border-bottom:1px solid var(--card-border);}
+.rail-item{border-left:0; border-bottom:2px solid transparent; border-radius:6px 6px 0 0;}
+.rail-item.active{border-left-color:transparent; border-bottom-color:var(--accent);}
+.settings-panels{padding:16px 20px 14px;}
 .settings-section{border-radius:12px; padding:15px 16px 17px;}
 .settings-footer{padding:16px 28px 22px; flex-wrap:wrap;}
 .settings-footer .verify-hint{min-width:100%; margin:0 0 4px;}
@@ -1368,13 +1531,7 @@ body{
 /* ================================================================
    v1.3.0 UI 统一化（幂等追加）
    ================================================================ */
-/* ---- 文本输入框 textarea 化：自动换行增高 ---- */
-.chat-input{
-  min-height:34px; max-height:120px; resize:none;
-  overflow-y:auto; line-height:1.55;
-  white-space:pre-wrap; word-break:break-word;
-  font-family:inherit;
-}
+/* ---- 文本输入框 scrollbar 美化 ---- */
 .chat-input::-webkit-scrollbar{width:4px}
 .chat-input::-webkit-scrollbar-thumb{background:rgba(128,128,128,.35); border-radius:2px}
 
@@ -1444,12 +1601,6 @@ body{
   line-height:36px;              /* 38 - 2 边框 */
   box-sizing:border-box;
   font-size:13px;
-}
-.chat-input-row .chat-input{
-  flex:1; height:38px; min-height:38px; max-height:120px;  /* 起步 38，多行可增到 120 */
-  padding:8px 12px;              /* 8*2 + 内容 ≈ 38，垂直居中舒适 */
-  box-sizing:border-box;
-  resize:none;
 }
 /* 发送按钮同高 */
 .chat-input-row .btn{
@@ -1534,37 +1685,192 @@ body{
   display:flex; align-items:center; gap:8px; flex-wrap:nowrap;
 }
 .chat-input-row > *{
-  height:38px !important; min-height:38px !important; max-height:38px !important;
   box-sizing:border-box;
 }
 .chat-input-row .skill-select,
 .chat-input-row .model-select{
-  height:38px !important;
-  padding:0 30px 0 12px !important;
-  margin:0 !important;
+  height:38px;
+  padding:0 30px 0 12px;
+  margin:0;
   vertical-align:middle;
 }
-/* 文本与图标按钮所在的包裹列：严格 38 高，content 垂直居中 */
+/* 文本与图标按钮所在的包裹列：不锁定高度，允许 textarea 增高溢出 */
 .chat-input-row .chat-input-wrap{
   flex:1 1 auto; min-width:0;
   display:flex; flex-direction:column; justify-content:center;
-  height:38px !important;
+  overflow:visible;
 }
 .chat-input-row .chat-input-wrap > *{flex-shrink:0}
 .chat-input-row .chat-input-wrap .image-preview-row{display:none}
-.chat-input-row .chat-input{
-  height:38px !important; min-height:38px !important;
-  padding:0 42px 0 12px !important;   /* 去掉旧 10px 上下白边，与 select 同基线 */
-  line-height:38px !important;        /* 单行文本垂直居中 */
-  margin:0 !important;
-  vertical-align:middle;
-}
-/* 多行增高时：清掉固定行高，恢复正常换行（仍在同列内，容器 38 时保持） */
-.chat-input{
-  max-height:120px; resize:none;
-}
 .chat-input-row .btn{
-  height:38px !important;
+  height:38px;
   display:inline-flex; align-items:center; justify-content:center;
   box-sizing:border-box; margin:0;
 }
+
+/* ================================================================
+   分发可视化 + 拖放 + 入场动效
+   ================================================================ */
+
+/* ── 系统事件条（工蚁派发 / 完工 / 打回）── */
+.bubble.sys{
+  align-self:center; max-width:80%; padding:0;
+  background:transparent; border:none; box-shadow:none;
+  justify-content:center; font-size:12.5px;
+  animation:sysIn 0.25s ease-out;
+}
+.bubble.sys .bubble-main{
+  flex:none; color:var(--muted);
+  background:rgba(255,255,255,0.045); border:1px solid var(--card-border);
+  border-radius:999px; padding:5px 14px;
+  line-height:1.6;
+}
+.bubble.sys .bubble-text{white-space:normal}
+@keyframes sysIn{from{opacity:0; transform:translateY(4px) scale(0.96)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){.bubble.sys{animation:none}}
+
+/* ── 拖放覆盖层（dragenter 时 .chat-col 加 drag-over）── */
+.chat-col.drag-over::after{
+  content:"松开以添加附件";
+  position:absolute; inset:6px; z-index:30;
+  border:2px dashed rgba(76,201,240,0.55);
+  border-radius:var(--radius-lg);
+  background:rgba(76,201,240,0.07);
+  backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--accent); font-size:14px; font-weight:600; letter-spacing:0.05em;
+  pointer-events:none;
+}
+
+/* ── 工蚁卡 / 子任务入场动效（面板局部刷新时新卡浮现）── */
+.worker-card, .subtask{animation:cardIn 0.22s ease-out}
+@keyframes cardIn{from{opacity:0; transform:translateY(5px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){.worker-card,.subtask{animation:none}}
+
+/* ================================================================
+   工具化：数据密度与专业呈现
+   ================================================================ */
+
+/* ── 工蚁卡：紧凑 + mono 任务行 + 实时耗时 ── */
+.worker-card{padding:10px 12px}
+.worker-card .top{gap:8px; margin-bottom:3px}
+.worker-card .meta.task{
+  font-family:ui-monospace,Consolas,monospace; font-size:11.5px;
+  color:var(--text); opacity:0.82;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.worker-card .meta.note{
+  color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.w-dur{
+  margin-left:auto; font-size:11px; color:var(--muted);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.art-badge{
+  margin-top:7px; display:inline-block; max-width:100%;
+  font-size:11px; color:var(--accent); cursor:default;
+  background:rgba(76,201,240,0.06); border:1px solid rgba(76,201,240,0.18);
+  border-radius:6px; padding:2px 8px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* ── 子任务：耗时 + mono 执行行 ── */
+.subtask .top{display:flex; align-items:center; gap:8px}
+.subtask .top .w-dur{margin-left:auto}
+.subtask .meta.msg{
+  font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* ── 日志：mono + 紧凑 ── */
+.log-line{padding:4px 10px; font-size:12.5px; gap:8px}
+.log-body{font-family:ui-monospace,Consolas,monospace; font-size:12px}
+
+/* ── 气泡复制按钮 ── */
+.bubble{position:relative}
+.msg-copy{
+  position:absolute; top:6px; right:8px; width:24px; height:24px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  border:none; border-radius:6px; background:rgba(255,255,255,0.05);
+  color:var(--muted); cursor:pointer; opacity:0;
+  transition:opacity 0.15s, background 0.15s, color 0.15s;
+}
+.bubble:hover .msg-copy{opacity:1}
+.msg-copy:hover{background:rgba(255,255,255,0.10); color:var(--text)}
+.msg-copy.copied{color:var(--success); opacity:1}
+
+/* ================================================================
+   Composer 最终覆盖（必须位于所有 .chat-input-row / 主题规则之后）
+   ================================================================ */
+.chat-input-row{
+  display:block; margin-top:10px; flex:none; align-items:stretch; gap:0;
+}
+.composer{
+  border:1px solid var(--card-border); border-radius:14px;
+  background:rgba(255,255,255,0.03);
+  transition:border-color 0.2s, box-shadow 0.2s;
+  overflow:hidden;
+}
+.composer:focus-within{
+  border-color:rgba(76,201,240,0.50);
+  box-shadow:0 0 0 3px rgba(76,201,240,0.08);
+}
+.chat-input-row .composer .chat-input,
+.chat-input-row .composer .chat-input:hover,
+.chat-input-row .composer .chat-input:focus{
+  border:none; background:transparent; box-shadow:none; outline:none;
+  padding:12px 14px 4px; min-height:46px; max-height:180px;
+  display:block; width:100%;
+}
+.composer-bar{display:flex; align-items:center; gap:4px; padding:4px 10px 10px}
+.composer-bar .spacer{flex:1}
+.chat-input-row .composer-bar #image-upload-btn{
+  width:30px; height:30px; flex-shrink:0; position:static;
+  border:none; background:transparent; color:var(--muted);
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; border-radius:8px; padding:0; transition:all 0.15s;
+}
+.chat-input-row .composer-bar #image-upload-btn:hover{color:var(--accent); background:rgba(76,201,240,0.08)}
+.chat-input-row .composer-bar #image-upload-btn:disabled{opacity:0.35; cursor:not-allowed}
+.chat-input-row .composer-bar .skill-select,
+.chat-input-row .composer-bar .model-select{
+  border:none; background-color:transparent; color:var(--muted);
+  height:auto; min-height:30px; max-height:none;
+  padding:5px 26px 5px 8px; font-size:12.5px; max-width:200px;
+  line-height:1.5; cursor:pointer; border-radius:8px;
+  box-shadow:none; outline:none;
+  transition:all 0.15s;
+}
+.chat-input-row .composer-bar .skill-select:hover,
+.chat-input-row .composer-bar .model-select:hover{
+  color:var(--text); background-color:rgba(255,255,255,0.05); border:none;
+}
+.chat-input-row .composer-bar .skill-select:focus,
+.chat-input-row .composer-bar .model-select:focus{
+  color:var(--text); background-color:rgba(255,255,255,0.05);
+  border:none; box-shadow:none;
+}
+/* 浅色主题：composer 内下拉保持无边框透明（压制白底规则） */
+[data-theme="light"] .chat-input-row .composer-bar .skill-select,
+[data-theme="light"] .chat-input-row .composer-bar .model-select{
+  background-color:transparent; border:none; box-shadow:none; color:var(--muted);
+}
+[data-theme="light"] .chat-input-row .composer-bar .skill-select:hover,
+[data-theme="light"] .chat-input-row .composer-bar .model-select:hover{
+  background-color:rgba(15,23,42,0.05); color:var(--text); border:none;
+}
+[data-theme="light"] .chat-input-row .composer-bar .chat-input{
+  background:transparent; border:none; box-shadow:none; color:var(--text);
+}
+.composer-send{
+  width:34px; height:34px; flex-shrink:0; border:none; border-radius:50%;
+  background:var(--accent); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center;
+  cursor:pointer; padding:0;
+  box-shadow:0 2px 10px rgba(76,201,240,0.30);
+  transition:all 0.15s ease;
+}
+.composer-send:hover{filter:brightness(1.1); box-shadow:0 3px 14px rgba(76,201,240,0.45); transform:translateY(-1px)}
+.composer-send:active{transform:scale(0.94)}
+.composer-send svg{width:16px; height:16px}

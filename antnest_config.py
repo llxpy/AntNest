@@ -30,6 +30,13 @@ import admin_utils
 import antnest_runtime_state as runtime_state
 # import memory_tree  # (已迁移至子模块)
 import model_capabilities
+import antnest_log
+
+# ====================== 日志系统初始化 ======================
+# 在启动序列最早期初始化结构化日志（三层：控制台/文件 JSON/桥接事件）。
+# 目录默认使用 .antnest/；可由环境变量 ANT_HOME 覆盖。
+_ant_home = os.environ.get("ANT_HOME") or os.path.join(os.getcwd(), ".antnest")
+antnest_log.setup(log_dir=_ant_home)
 
 # ====================== 路径解析 ======================
 _resolved = Path(__file__).resolve()
@@ -59,22 +66,34 @@ if os.path.exists(_config_path):
         with open(_config_path, "r", encoding="utf-8") as _f:
             _config = json.loads(_f.read())
     except Exception:
-        pass
+        _cnf = antnest_log.get_logger("config")
+        _cnf.error(f"config.json 解析失败（{_config_path}），将使用默认配置")
+        _config = {}
+
+# ====================== 配置校验（schema） ======================
+# 校验 config.json 结构，返回规范化配置 + 问题清单。
+# 校验失败不阻断启动：记录问题并回退安全默认值。
+import antnest_config_schema
+_cfg_validated = antnest_config_schema.validate_config(_config)
+antnest_config_schema.log_validation_report(_cfg_validated)
 
 _config_api = _config.get("api", {})
-ANT_BASE_URL = os.environ.get("ANT_BASE_URL") or _config_api.get("base_url", "https://api.deepseek.com/v1")
-ANT_MODEL_NAME = os.environ.get("ANT_MODEL_NAME") or _config_api.get("model_name", "deepseek-v4-flash")
+_config_agent = _config.get("agent", {})
+ANT_BASE_URL = os.environ.get("ANT_BASE_URL") or _config_api.get("base_url") or _cfg_validated.api.base_url
+ANT_MODEL_NAME = os.environ.get("ANT_MODEL_NAME") or _config_api.get("model_name") or _cfg_validated.api.model_name
 
 # 启动时校验 Base URL（空或不含协议的 URL 会在 detect_model_len 时崩溃）
 _ANT_BASE_STRIPPED = (ANT_BASE_URL or "").strip().rstrip("/")
 if _ANT_BASE_STRIPPED and "://" not in _ANT_BASE_STRIPPED:
-    print(f"警告：API Base URL 格式无效（{ANT_BASE_URL!r}），缺少协议前缀（https://）")
-    print(f"配置文件位置：{_config_path}")
-    print(f"将使用默认值 https://api.deepseek.com/v1")
+    _cfg_log = antnest_log.get_logger("config")
+    _cfg_log.warning(f"API Base URL 格式无效（{ANT_BASE_URL!r}），缺少协议前缀（https://）")
+    _cfg_log.info(f"配置文件位置：{_config_path}")
+    _cfg_log.info(f"将使用默认值 https://api.deepseek.com/v1")
     ANT_BASE_URL = "https://api.deepseek.com/v1"
 elif not _ANT_BASE_STRIPPED:
-    print(f"警告：API Base URL 为空，将使用默认值 https://api.deepseek.com/v1")
-    print(f"配置文件位置：{_config_path}")
+    _cfg_log = antnest_log.get_logger("config")
+    _cfg_log.warning(f"API Base URL 为空，将使用默认值 https://api.deepseek.com/v1")
+    _cfg_log.info(f"配置文件位置：{_config_path}")
     ANT_BASE_URL = "https://api.deepseek.com/v1"
 
 
@@ -93,8 +112,9 @@ def _load_secret_key() -> str:
 ANT_API_KEY = os.environ.get("ANT_API_KEY") or _load_secret_key() or _config_api.get("api_key", "")
 
 if not ANT_API_KEY:
-    print(f"错误：未配置 API Key。请在 config.json 中设置 api_key 或设置环境变量 ANT_API_KEY")
-    print(f"配置文件位置：{_config_path}")
+    _cfg_log = antnest_log.get_logger("config")
+    _cfg_log.error(f"未配置 API Key。请在 config.json 中设置 api_key 或设置环境变量 ANT_API_KEY")
+    _cfg_log.info(f"配置文件位置：{_config_path}")
     sys.exit(1)
 
 COMMON_HEADER = {"User-Agent": "AntNest", "Authorization": f"Bearer {ANT_API_KEY}"}
@@ -103,6 +123,7 @@ COMMON_HEADER = {"User-Agent": "AntNest", "Authorization": f"Bearer {ANT_API_KEY
 # 检测管理员权限，修复输入法，显示警告
 _admin_info = admin_utils.get_admin_status()
 if _admin_info["is_admin"]:
+    antnest_log.get_logger("config").warning("AntNest 正在以管理员权限运行")
     print(f"\n{'='*60}")
     print(f"⚠️  AntNest 正在以管理员权限运行")
     print(f"{'='*60}")
@@ -121,12 +142,12 @@ def _config_bool(val, default=False) -> bool:
     return str(val).strip().lower() in ("true", "1", "yes", "on")
 
 
-DEFAULT_TOKEN_CAP = int(_config_api.get("default_token_cap") or 128000)
+DEFAULT_TOKEN_CAP = int(os.environ.get("ANT_TOKEN_CAP") or _cfg_validated.api.default_token_cap)
 SKIP_MODEL_CHECK = _config_bool(
-    os.environ.get("ANT_SKIP_MODEL_CHECK") or _config_api.get("skip_model_check")
+    os.environ.get("ANT_SKIP_MODEL_CHECK") or _config_api.get("skip_model_check", _cfg_validated.api.skip_model_check)
 )
 THINKING_MODE = (
-    os.environ.get("ANT_THINKING_MODE") or _config_api.get("thinking_mode") or "auto"
+    os.environ.get("ANT_THINKING_MODE") or _config_api.get("thinking_mode") or _cfg_validated.api.thinking_mode
 ).strip().lower()
 
 
@@ -177,19 +198,19 @@ def _urlopen_with_retry(req: urllib.request.Request, max_retries: int = 3):
                 raise _http_error_with_body(e, last_raw) from e
             wait = _retry_after_seconds(e, attempt)
             hint = "服务繁忙" if e.code == 429 else "网关异常"
-            sys.stdout.write(
-                f"\n[!] {hint} (HTTP {e.code})，{wait:.0f}s 后重试 ({attempt + 1}/{max_retries})…\n"
+            antnest_log.get_logger("config").info(
+                f"{hint} (HTTP {e.code})，{wait:.0f}s 后重试 ({attempt + 1}/{max_retries})"
             )
-            sys.stdout.flush()
             time.sleep(wait)
     if last_err:
         raise _http_error_with_body(last_err, last_raw)
-    raise RuntimeError("LLM 请求失败")
+    from antnest_errors import ApiError
+    raise ApiError("LLM 请求失败", user_msg="无法连接模型服务")
 
 
 def detect_model_len():
     if SKIP_MODEL_CHECK:
-        print(f"> 已跳过 /models 检测，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
+        antnest_log.get_logger("config").info(f"已跳过 /models 检测，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
         return DEFAULT_TOKEN_CAP
 
     cap = model_capabilities.detect_capability(
@@ -200,7 +221,7 @@ def detect_model_len():
     if cap.get("detected") and cap.get("context_length"):
         return int(cap["context_length"])
     if cap.get("msg"):
-        print(f"警告：{cap['msg']}，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}。")
+        antnest_log.get_logger("config").warning(f"{cap['msg']}，使用默认 token 上限 {DEFAULT_TOKEN_CAP:,}")
     return DEFAULT_TOKEN_CAP
 
 
@@ -260,9 +281,12 @@ def _ensure_model_cap():
 _config_agent = _config.get("agent", {})
 
 TOKEN_CAP = detect_model_len()
-COMPACT_THRESH = float(os.environ.get("ANT_COMPACT_THRESH") or _config_agent.get("compact_threshold", 0.85))
+COMPACT_THRESH = float(os.environ.get("ANT_COMPACT_THRESH") or _config_agent.get("compact_threshold", _cfg_validated.agent.compact_threshold))
 TOOL_RESULT_LEN = int(os.environ.get("ANT_TOOL_RESULT_LEN") or _config_agent.get("tool_result_max_len", min(8000, int(TOKEN_CAP / 20))))
-DEFAULT_WORKER_TIMEOUT = int(os.environ.get("ANT_WORKER_TIMEOUT") or _config_agent.get("worker_timeout", 300))
+DEFAULT_WORKER_TIMEOUT = int(os.environ.get("ANT_WORKER_TIMEOUT") or _config_agent.get("worker_timeout", _cfg_validated.agent.worker_timeout))
+RESTORE_ON_RESTART = _config_bool(
+    os.environ.get("ANT_RESTORE_ON_RESTART") or _config_agent.get("restore_on_restart", _cfg_validated.agent.restore_on_restart)
+)
 # 模型能力画像（会话开始时 _ensure_model_cap 校准；未校准时为占位说明）
 _CAP_SUMMARY = "（模型能力将按 /models 校准…）"
 ALLOW_ALL_CLI = False
@@ -451,26 +475,27 @@ def _runtime_prompt_context():
     try:
         state = runtime_state.load(RUNTIME_STATE_FILE)
         text = runtime_state.profile_prompt(state) + "\n\n" + runtime_state.persona_prompt(state)
-        stop = runtime_state.get_stop(RUNTIME_STATE_FILE)
-        if stop:
-            text += (
-                "\n\n《用户主动停止后的恢复上下文》\n"
-                "下一轮先理解可能原因，说明调整后再继续。\n"
-                f"任务：{stop.get('task', '')}\n"
-                f"决策摘要：{stop.get('decision_summary', '')}\n"
-                f"已知证据：{stop.get('evidence', '')}\n"
-                f"建议下一步：{stop.get('next_step', '')}"
-            )
+        if RESTORE_ON_RESTART:
+            stop = runtime_state.get_stop(RUNTIME_STATE_FILE)
+            if stop:
+                text += (
+                    "\n\n《用户主动停止后的恢复上下文》\n"
+                    "下一轮先理解可能原因，说明调整后再继续。\n"
+                    f"任务：{stop.get('task', '')}\n"
+                    f"决策摘要：{stop.get('decision_summary', '')}\n"
+                    f"已知证据：{stop.get('evidence', '')}\n"
+                    f"建议下一步：{stop.get('next_step', '')}"
+                )
         return text
     except Exception:
         return ""
 
 # 深度限制：蚁后=0，工蚁=1，子工蚁=2，≥3 禁止复制
-MAX_DEPTH = int(os.environ.get("AN_MAX_DEPTH") or _config_agent.get("max_depth", 2))
+MAX_DEPTH = int(os.environ.get("AN_MAX_DEPTH") or _cfg_validated.agent.max_depth)
 
 # 各层最大并发工蚁数
 _default_max_clones = {0: 10, 1: 5, 2: 3}
-_cfg_max_clones = _config_agent.get("max_clones", {})
+_cfg_max_clones = _cfg_validated.agent.max_clones or {}
 MAX_CLONES = {k: _cfg_max_clones.get(str(k), _default_max_clones[k]) if isinstance(_cfg_max_clones, dict) else _default_max_clones[k] for k in _default_max_clones}
 # 蚁后最多派出 10 只工蚁，工蚁最多派出 5 只子工蚁，子工蚁最多派出 3 只子子工蚁
 
