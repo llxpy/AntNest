@@ -55,6 +55,15 @@ def _tool_call(name: str, args: dict | None = None, tid: str = "call_1") -> dict
 def _usage() -> dict:
     return {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0}
 
+def _llm_result(msg, usage):
+    """llm_chat_stream 返回 (message, usage, finish_reason)。
+
+    第三位按有无 tool_calls 给真实值：统一填 "stop" 会在将来有测试
+    真的走失败归因时喂进一个假的 finish_reason。
+    """
+    return msg, usage, ("tool_calls" if (msg or {}).get("tool_calls") else "stop")
+
+
 
 class CheckpointWiringTest(unittest.TestCase):
     @classmethod
@@ -103,9 +112,9 @@ class CheckpointWiringTest(unittest.TestCase):
 
         def _llm(_messages, tools=None):
             try:
-                return next(it), _usage()
+                return _llm_result(next(it), _usage())
             except StopIteration:
-                return {"role": "assistant", "content": "完成"}, _usage()
+                return _llm_result({"role": "assistant", "content": "完成"}, _usage())
 
         with mock.patch.object(self.an, "llm_chat_stream", _llm):
             self.an.agent_single_loop()

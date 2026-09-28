@@ -142,19 +142,50 @@ def _detect_malformed_tool_call(content: str):
     return False
 
 
+class LoopResult:
+    """一轮 agent 循环的结局摘要，供 UI 在没有文本回复时说清「为什么」。
+
+    为什么必须显式返回而不是读模块全局：agent_single_loop 最多 60 轮，
+    每轮都调一次模型，任何「记在模块里」的 finish_reason 都会被下一轮覆盖，
+    末尾只读得到最后一轮的值——而正常多轮回合的最后一轮几乎必然是
+    tool_calls 或 stop，于是「被截断」「被内容策略拦截」永远诊断不出来。
+    模块全局在回合重叠时还会串写。
+    """
+
+    __slots__ = ("outcome", "rounds", "finish_reasons", "retry_notes", "error")
+
+    def __init__(self):
+        self.outcome = "replied"   # replied/empty/max_rounds/cancelled/denied/approval/error
+        self.rounds = 0
+        self.finish_reasons = []   # 逐轮，用于定位「哪一轮开始异常」
+        self.retry_notes = []      # 空回复/畸形调用等重试告警原文
+        self.error = None          # 异常对象（outcome == "error" 时）
+
+    def to_dict(self) -> dict:
+        return {
+            "outcome": self.outcome,
+            "rounds": self.rounds,
+            "finish_reasons": list(self.finish_reasons),
+            "retry_notes": list(self.retry_notes),
+        }
+
+
 def agent_single_loop():
     global COMPACT_PANIC, LAST_USAGE
     _A()._ensure_model_cap()
     COMPACT_PANIC = False
     break_loop = False
     _rounds = 0
+    _result = LoopResult()
     _recent_cmds = []  # 最近工具调用 (name, args) 记录，用于重复循环检测
     _max_rounds = int(os.environ.get("ANT_MAX_ROUNDS", "60"))
     while not break_loop:
         _rounds += 1
+        _result.rounds = _rounds
         if _rounds > _max_rounds:
             _log.warning(f"已达单任务最大轮次 {_max_rounds}，强制结束")
             _ev.emit(_ev.Event.LOOP_MAX_ROUNDS, rounds=_rounds, limit=_max_rounds)
+            _result.outcome = "max_rounds"
             _A().messages.append({
                 "role": "user",
                 "content": (
@@ -173,6 +204,7 @@ def agent_single_loop():
         if _A().AGENT_CANCEL:
             _log.info("用户强行停止")
             _ev.emit(_ev.Event.LOOP_CANCELLED, round=_rounds)
+            _result.outcome = "cancelled"
             _A().messages.append({
                 "role": "user",
                 "content": "《系统提示》用户已强行停止当前操作。请简要确认已中断，并询问是否继续。",
@@ -183,7 +215,10 @@ def agent_single_loop():
             sys.stdout.flush()
             tools = _A().get_queen_tools(_A().COMPACT_PANIC)
             try:
-                msg, usage = _A().llm_chat_stream(_A()._with_retrieved_memory(_A().messages), tools=tools)
+                msg, usage, _fr = _A().llm_chat_stream(
+                    _A()._with_retrieved_memory(_A().messages), tools=tools
+                )
+                _result.finish_reasons.append(_fr or "")
             except _A().ThinkRepeatError:
                 _log.warning("检测到 thinking 重复，自动中断")
                 _A().messages.append({
@@ -196,7 +231,8 @@ def agent_single_loop():
             _A().messages.append(msg)
 
             if _A().AGENT_CANCEL:
-                break
+                _result.outcome = "cancelled"
+                _result.outcome = "cancelled"
 
             sys.stdout.write("\n\n")
             sys.stdout.flush()
@@ -205,18 +241,25 @@ def agent_single_loop():
                 content = msg.get("content") or ""
                 if not str(content).strip():
                     _A().messages.pop()
+                    # 这条告警就是模型自己算出来的诊断，原先只喂回给模型，
+                    # 用户一个字都看不到。收进 LoopResult 供 UI 展示。
+                    _note = "回复为空，没有输出也没有调用工具"
+                    _result.retry_notes.append(_note)
+                    _result.outcome = "empty"
                     _A().messages.append({
                         "role": "user",
-                        "content": "警告：回复为空，没有输出也没有调用工具，请重新回答。",
+                        "content": f"警告：{_note}，请重新回答。",
                     })
                     continue
 
                 if _detect_malformed_tool_call(content):
+                    _result.retry_notes.append("工具调用格式不正确")
                     _A().messages.append({
                         "role": "user",
                         "content": "警告：工具调用格式不正确，请以正确的格式调用 spawn_clone 工具。",
                     })
                     continue
+                _result.outcome = "replied"
                 break
 
             _approval_request = None
@@ -303,6 +346,7 @@ def agent_single_loop():
                 except KeyboardInterrupt:
                     _log.info("工具调用已中断，回到用户 turn")
                     result = "用户中止该工具运行"
+                    _result.outcome = "cancelled"
                     break_loop = True
                 except Exception as e:
                     result = f"工具执行异常：{str(e)}"
@@ -355,6 +399,7 @@ def agent_single_loop():
                         "scope": _gate_data.get("scope", ""),
                         "tool": name,
                     }
+                    _result.outcome = "approval"
                     break_loop = True
                     break
                 if _gate_status == "denied":
@@ -364,6 +409,7 @@ def agent_single_loop():
                         "tool": name,
                         "level": _gate_data.get("level_label", ""),
                     }
+                    _result.outcome = "denied"
                     # 被硬拒绝的调用不计入重复检测：否则连续 3 次相同的被拒调用
                     # 会触发「自我反思换方法」，等于在教模型换一个方式去重试
                     # 一个刚被明确禁止的操作。
@@ -471,12 +517,16 @@ def agent_single_loop():
             break_loop = True
             break
         except Exception as e:
+            _result.error = e
+            _result.outcome = "error"
             from antnest_errors import AntNestError
             if isinstance(e, AntNestError):
                 _log.error(f"[{e.code}] LLM 调用异常：{e}")
             else:
                 _log.error(f"LLM 调用异常：{e}")
             break
+
+    return _result
 
 
 # ====================== 主循环 ======================

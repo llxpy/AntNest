@@ -1256,8 +1256,12 @@ class AntNestCore:
 
             _my_tap = StdoutTap(old_out, _route_line)
             sys.stdout = _my_tap
+            # 循环的结局摘要：没有文本回复时，靠它说清是截断、被内容策略拦、
+            # 还是重试到上限。原先这里丢弃返回值，于是收尾处只能打印
+            # 「详见运行日志」。
+            self._last_loop = None
             try:
-                m.agent_single_loop()
+                self._last_loop = m.agent_single_loop()
             finally:
                 try:
                     _my_tap.flush()

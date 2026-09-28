@@ -111,6 +111,13 @@ class RepeatSuffixChecker:
 
 
 def llm_chat_stream(messages, tools=None, temperature=None, thinking=True):
+    """流式对话。返回 (message, usage, finish_reason)。
+
+    finish_reason 是唯一能把「模型返回空」细分化的信息：length/max_tokens 是
+    撞上限被截断，content_filter 是被内容策略拦，insufficient_system_resource
+    是服务端资源不足，stop/end_turn 是正常结束。拿不到它，这几类在 UI 上
+    无法区分。某些端点不提供该字段，此时返回空串。
+    """
     url = f"{_A().ANT_BASE_URL}/chat/completions"
     data = _build_request_data(messages, tools, temperature, thinking, stream=True)
 
@@ -161,6 +168,9 @@ def llm_chat_stream(messages, tools=None, temperature=None, thinking=True):
     usage = None
     role = "assistant"
     is_thinking = False
+    # 唯一能区分「回复被 token 上限截断」「被内容策略拦截」「服务端资源不足」
+    # 的字段。缺了它，这三类全塌缩成同一句「没有文本回复」。
+    finish_reason = ""
 
     detector = RepeatSuffixChecker(min_unit_len=400)
 
@@ -188,6 +198,15 @@ def llm_chat_stream(messages, tools=None, temperature=None, thinking=True):
             choices = chunk.get("choices", [])
             if not choices:
                 continue
+
+            # finish_reason 必须在此处读，不能挪到下面。
+            # 它挂在 choices[0] 上而不在 delta 里，而流式协议的终止块是
+            # {"delta": {}, "finish_reason": "stop"} —— delta 为空会被
+            # 下一行的 `if not delta` 判空短路掉，于是永远读不到。
+            # 这个位置写错的话，配套测试会全绿却零覆盖（路径不可达）。
+            fr = choices[0].get("finish_reason")
+            if fr:
+                finish_reason = fr
 
             delta = choices[0].get("delta", {})
             if not delta:
@@ -264,4 +283,6 @@ def llm_chat_stream(messages, tools=None, temperature=None, thinking=True):
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     # token 用量实时上报（UI 顶栏显示）
     _A()._stream_emit("usage", json.dumps(usage, ensure_ascii=False))
-    return message, usage
+    # 三元组而非写进 message：message 会被原样存进 _A().messages 并在下一轮
+    # 发回 API，多一个未知键可能被 OpenAI 兼容端点拒（400）。
+    return message, usage, finish_reason

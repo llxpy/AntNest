@@ -145,7 +145,10 @@ class ScriptedLLM:
             self.tokens += 100
         else:
             self.tokens += 30
-        return msg, _usage(self.tokens)
+        # 三元组：第三位是 finish_reason。少返回一个会让 agent_single_loop
+        # 的解包抛 ValueError，症状是「全部用例莫名失败」而不是指向 mock。
+        fr = "tool_calls" if (isinstance(msg, dict) and msg.get("tool_calls")) else "stop"
+        return msg, _usage(self.tokens), fr
 
     def _render(self, step: Any) -> dict:
         if isinstance(step, str):
