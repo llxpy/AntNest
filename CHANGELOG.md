@@ -25,6 +25,24 @@
 - **顺带**：「回复为空」的重试告警原先只喂回给模型、用户一个字都看不到，现收进 `LoopResult.retry_notes`。
 - **遗留**：`diagnose_turn()` 归因与 `AntNestError.user_msg` 上屏属下一步。
 
+#### 步 4 — 测试套件首次全绿 + README 重写
+
+**测试（先于 README 修的）**：README 要写测试数，而 `test_capability` 两条一直是红的，于���先查清了。根因是**系统性测试卫生缺陷**：14 个测试文件用 `os.environ.setdefault("ANT_SKIP_MODEL_CHECK", "1")` 且从不清理，`test_api_compat.py:76` 还直接设 `an.SKIP_MODEL_CHECK = True`。按字母序 `test_capability` 排在它们之后，继承了被污染的环境，`_ensure_model_cap()` 直接 return，画像永远是未检测兜底。**症状是单跑该文件全绿、全量跑两条红。** 已让 `setUpClass` 显式 `pop` 环境变量、reload `antnest_config`、清 `model_capabilities._CACHE`。
+
+顺带修掉一个**测试在断言一个没人依赖的副作用**：`assertNotIn("{model_capability}")`。占位符其实是在**格式化时**由 `model_capability_summary()` 填的（`AntNest.py:160/231`、`antnest_bridge.py:832`、`antnest_memory.py:81` 全走 `SYSTEM_PROMPT.format(model_capability=...)`），而 `_ensure_model_cap` 里那句 `.replace()` 写的是 `antnest_config` 的模块全局、没人读它——`from x import *` 是值拷贝，这就是 AGENTS.md §9 的双命名空间。已改为断言真正该保证的东西（画像进了格式化后的提示词 + `TOKEN_CAP` 按实测校准），并把陷阱写进注释。
+
+**618 passed, 38 subtests，全套首次无失败。**
+
+**README 重写**：对标 OpenClaw 重新组织叙事。定位是「形态」之争——OpenClaw 的答案是**渠道**（自托管 Gateway 送进 29 个聊天软件），AntNest 的答案是**桌面深度**（原生 Windows 应用，重心放在「在这台机器上把复杂活干完且全程可见」）。加了一张逐项对照表，并诚实标出 AntNest 的短板（目前仅 Windows、工蚁仍顺序执行）。
+
+**修掉 README 里三处已过期的事实**：测试数（写着 82 → 618）、「对话框内切换模型」（v1.4.1 步 3 已移到顶栏）、项目结构（缺 v1.4 新增的 8 个模块）。
+
+**没有采用「趋于完美」这类措辞。** AGENTS.md §3 明令「文档与 UI 措辞不得夸大」——权限分级是闸门不是护栏、进程隔离不是容器沙箱。所以保留了「⚠️ 进程级隔离，不是容器沙箱」「权限分级是闸门，不是护栏」这类反向声明，并有断言守着不删。写门面可以，撒谎不行。
+
+新增 README 事实核对脚本（临时的，未入库）：逐条验证测试数、评测数、17 个工具名、权限档位、截图资源存在性、内部锚点有效、夸大措辞缺席、诚实声明在场。全部通过。
+
+- **遗留**：README 提到的「工蚁真正并行派发」「跨平台」仍在路线图里，未实现。
+
 #### 步 3 — 面板头去重 + 模型切换移到顶栏
 
 用户实机截图指出三处：
