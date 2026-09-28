@@ -264,7 +264,9 @@ class CssPresenceTest(unittest.TestCase):
 
     # 组件前缀：这些前缀下的类名约定是「自定义组件」，必须真有 CSS 规则。
     # 工具类（flex/row/muted/primary…）不在此列，否则断言会淹没在噪音里。
-    _COMPONENT_PREFIXES = ("btn-", "tl-", "perm-", "plan-", "health-")
+    # topbar- 是 v1.4.1 加的（模型切换移到顶栏）——新前缀必须同时加进这里，
+    # 否则新写的顶栏样式可以完全没有规则而无人察觉。
+    _COMPONENT_PREFIXES = ("btn-", "tl-", "perm-", "plan-", "health-", "topbar-")
 
     # 豁免：只被 JS 选中、靠继承父元素取样式、**故意**不给规则的类。
     # 加进这里等于声明「我确认过它是钩子不是组件」，是个需要走心的决定。

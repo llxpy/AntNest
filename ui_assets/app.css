@@ -104,9 +104,48 @@ body{
 .topbar select,
 .topbar input,
 .topbar .skill-select,
-.topbar .tag{
+.topbar .tag,
+.topbar .topbar-model-wrap{
   -webkit-app-region:no-drag; app-region:no-drag;
 }
+
+/* ---- 模型切换（v1.4.1：从输入栏移到顶栏，跟在状态胶囊旁） ----
+   放在顶栏而不是输入栏，因为模型是**会话级**设置，不是每条消息的临时
+   开关（Skill 才是）。原先它在输入栏里被 .composer-bar 规则去掉了边框，
+   渲染成一段裸文字悬在输入框中间，既看不出是控件，位置也和它实际的
+   生命周期不符。 */
+.topbar .topbar-model-wrap{
+  display:inline-flex; align-items:center; gap:5px;
+  min-width:0; max-width:210px;
+  height:26px; padding:0 3px 0 8px;
+  border:1px solid transparent; border-radius:13px;
+  transition:background 0.15s ease, border-color 0.15s ease;
+}
+.topbar .topbar-model-wrap:hover{
+  background:rgba(255,255,255,0.06); border-color:var(--card-border);
+}
+.topbar .topbar-model-icon{ flex-shrink:0; color:var(--muted); opacity:0.75; }
+.topbar .topbar-model-wrap:hover .topbar-model-icon{ color:var(--accent); opacity:1; }
+.topbar .topbar-model{
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  border:none !important; background-color:transparent !important;
+  box-shadow:none !important; outline:none;
+  color:var(--muted); font-size:12px; line-height:24px;
+  height:24px; min-height:0; max-height:none; margin:0; padding:0 18px 0 2px !important;
+  max-width:180px; min-width:60px; cursor:pointer;
+  text-overflow:ellipsis; white-space:nowrap; overflow:hidden;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23888888'/></svg>");
+  background-repeat:no-repeat; background-position:right 2px center;
+  background-size:9px 5px;
+}
+.topbar .topbar-model:hover{ color:var(--text); }
+.topbar .topbar-model:focus{ box-shadow:none !important; color:var(--text); }
+.topbar .topbar-model option{ background:var(--surface, #14161f); color:var(--text); }
+[data-theme="light"] .topbar .topbar-model-wrap:hover{ background:rgba(15,23,42,0.05); }
+[data-theme="light"] .topbar .topbar-model{ color:#4a5b72; }
+[data-theme="light"] .topbar .topbar-model:hover,
+[data-theme="light"] .topbar .topbar-model:focus{ color:#1a2332; }
+[data-theme="light"] .topbar .topbar-model option{ background:#fff; color:#1a2332; }
 
 /* 鈹€鈹€ 鑷粯绐楀彛鎺у埗鎸夐挳锛坒rameless 妯″紡锛夆攢鈹€ */
 .win-ctrl{
@@ -1052,10 +1091,13 @@ body{
   .monitor-panels{grid-template-columns:1fr 1fr;}
 }
 @media (max-width:620px){
-  .topbar{padding:11px 14px; gap:7px;}
-  .topbar .sponsor,.topbar #btn-check-update{display:none;}
-  .topbar .btn{padding:7px 9px; font-size:12px;}
-  .tag{display:none;}
+.topbar{padding:11px 14px; gap:7px;}
+.topbar .sponsor,.topbar #btn-check-update{display:none;}
+.topbar .btn{padding:7px 9px; font-size:12px;}
+/* 窄屏优先牺牲模型名：保留下拉（换模型仍可达），只收窄宽度。 */
+.topbar .topbar-model-wrap{max-width:96px;}
+.topbar .topbar-model{max-width:66px; font-size:11.5px;}
+.tag{display:none;}
   .main{padding:10px; gap:12px;}
   .chat-col .card.chat{padding:14px;}
   .monitor-panels{grid-template-columns:1fr;}

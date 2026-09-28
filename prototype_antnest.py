@@ -13303,6 +13303,12 @@ app.body(
 
 
         ui.span(cls="pill idle", id="status-pill")["待命"],
+        ui.raw(f'<span class="topbar-model-wrap">'
+            '<svg class="topbar-model-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>'
+            f'<select class="model-select topbar-model" id="model-select" title="切换当前模型（对下一次任务生效）" onchange="onModelChange(this.value)">'
+            f'<option value="{_h.escape(SETTINGS.get("llm_model", ""))}">'
+            f'{_h.escape(SETTINGS.get("llm_model") or "选择模型")}</option></select>'
+            '</span>'),
         ui.raw('<div class="win-ctrl"><button class="win-btn" onclick="winCtrl(&quot;minimize&quot;)" title="最小化" aria-label="最小化"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6.5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button><button class="win-btn" id="win-max-btn" onclick="winCtrl(&quot;maximize&quot;)" title="最大化" aria-label="最大化"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button><button class="win-btn win-btn-close" onclick="winCtrl(&quot;close&quot;)" title="关闭" aria-label="关闭"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button></div>'),
 
 
@@ -13494,7 +13500,6 @@ app.body(
                             ui.div(cls="composer-bar")[
                                 ui.raw('<button type="button" id="image-upload-btn" title="上传图片（可拖拽/粘贴到输入框）" onclick="document.getElementById(\'image-upload\').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>'),
                                 ui.raw(f'<select class="skill-select" id="skill-select" onchange="onSkillChange(this.value)" title="选择要附加的 Skill">{_skill_options()}</select>'),
-                                ui.raw(f'<select class="model-select" id="model-select" onchange="onModelChange(this.value)" title="切换当前模型（即时生效，下一轮起用）"><option value="{_h.escape(SETTINGS.get("llm_model", ""))}">{_h.escape(SETTINGS.get("llm_model") or "选择模型")}</option></select>'),
                                 ui.div(cls="spacer"),
                                 ui.raw('<button type="button" class="composer-send" id="send-btn" onclick="onSend()" title="发送（Enter）" aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>'),
                                 ui.raw('<input type="file" id="image-upload" accept="image/*" style="display:none" onchange="onImageFile(this)">'),
@@ -13683,7 +13688,6 @@ app.body(
 
 
 
-                    ui.raw('<button class="btn ghost btn-expand" onclick="openSubtasksModal()" title="展开查看全部子任务">展开</button>'),
 
 
 
@@ -13712,7 +13716,6 @@ app.body(
 
 
 
-                    ui.raw('<button class="btn ghost btn-expand" onclick="openWorkersModal()" title="展开查看全部工蚁状态">展开</button>'),
 
 
 
