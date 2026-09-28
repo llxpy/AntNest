@@ -36,6 +36,27 @@ if ($version) {
         $bytes = [IO.File]::ReadAllBytes($exe)
         $text = [Text.Encoding]::ASCII.GetString($bytes)
         Check ($text.Contains($version)) "AntNest.exe contains version resource $version" "AntNest.exe does not contain version resource $version"
+
+        # Stale-exe guard. tools/sync_release.ps1 injects a PRE-BUILT exe and
+        # never runs build_launcher.ps1, so the shipped launcher can drift
+        # far behind installer/antnest_boot.ps1 while every other check
+        # passes (the version string alone proves nothing - an old exe from
+        # the same version already contains it).
+        # Compare the schema fingerprint declared in the boot script against
+        # the bytes actually inside the exe.
+        $boot = Join-Path $repo "installer\antnest_boot.ps1"
+        if (Test-Path $boot) {
+            $bootText = [IO.File]::ReadAllText($boot)
+            $m = [regex]::Match($bootText, '\$BOOT_SCHEMA\s*=\s*"([^"]+)"')
+            if ($m.Success) {
+                $schema = $m.Groups[1].Value
+                Check ($text.Contains($schema)) `
+                    "AntNest.exe was built from the current boot script (schema $schema)" `
+                    "AntNest.exe is STALE: it does not contain boot schema $schema. Re-run installer\build_launcher.ps1."
+            } else {
+                Check $false "boot script declares \$BOOT_SCHEMA" "boot script has no \$BOOT_SCHEMA fingerprint; cannot detect a stale exe"
+            }
+        }
     }
 }
 
@@ -43,12 +64,18 @@ if ($version) {
 $required = @(
     "AntNest.py", "prototype_antnest.py", "antnest_bridge.py", "phtmlwin.py",
     "api_compat.py", "mcp_client.py", "task_manager.py", "admin_utils.py", "pyproject.toml", "uv.lock",
-    "installer\AntNest.iss", "installer\launcher.ps1", "installer\launch.ps1",
+    "installer\AntNest.iss", "installer\antnest_boot.ps1",
     "installer\install_deps.ps1", "installer\ensure_prereqs.ps1",
     "installer\uv_helper.ps1", "installer\version.iss"
 )
 foreach ($file in $required) {
     Check (Test-Path (Join-Path $repo $file)) "required file exists: $file" "required file missing: $file"
+}
+
+# launch.ps1 / launcher.ps1 were removed in v1.4.1. Guard against a silent
+# resurrection: both duplicated the boot logic and had no consumer.
+foreach ($gone in @("installer\launch.ps1", "installer\launcher.ps1")) {
+    Check (-not (Test-Path (Join-Path $repo $gone))) "removed: $gone" "removed file is back: $gone"
 }
 
 # Git rules: launcher is tracked; installer output and runtime config are not.

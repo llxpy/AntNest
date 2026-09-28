@@ -6,15 +6,19 @@
 ## 安装器做了什么
 
 1. 把应用源码复制到 `%LOCALAPPDATA%\AntNest`（4 个 .py + pyproject.toml + uv.lock + antnest.ico）。
-2. 在开始菜单 / 桌面建快捷方式，隐藏窗口调用 `launch.ps1`。
+2. 在开始菜单 / 桌面建快捷方式，指向 `AntNest.exe`（由 `antnest_boot.ps1` 经 ps2exe 编译，无控制台窗口）。
 3. 首次安装时跑 `ensure_prereqs.ps1`：
    - **uv**：若未安装，自动装（Astral 官方脚本）。
    - **WebView2 运行时**：pywebview 在 Windows 的默认后端，若注册表无则下载 Evergreen 引导器静默安装（可能弹 UAC，允许即可）。
-4. 首次启动 `launch.ps1` → `uv run --project … python prototype_antnest.py`：
-   - uv 自动建 `.venv` 并从 PyPI 装 `pywebview`（**首次需联网**）。
-   - 之后启动走已建好的 venv，离线也能开。
-5. 用户数据（config.json / ui_config.json / .antnest / trace）落在 `%LOCALAPPDATA%\AntNest`，
-   与源码同目录但升级时不覆盖（Inno `onlyifdoesntexist`）。
+4. 安装结束跑 `install_deps.ps1`：装 uv、确保 WebView2，并预装 Python 依赖到 `.venv`，使首次启动更快。
+5. 双击 `AntNest.exe` → `antnest_boot.ps1`：
+   - **预检**：安装完整性、日志目录、uv、WebView2（注册表优先，缺则装）、磁盘余量。失败的弹窗给出具体原因与日志路径。
+   - 启动 `uv run --project … python prototype_antnest.py`（无控制台窗口）。
+   - uv 自动建 `.venv` 并从 PyPI 装 `pywebview`（**首次需联网**）；之后走已建好的 venv，离线也能开。
+   - 子进程非零退出时弹窗展示退出码 + `antnest.log` / `ui_trace.log` 尾部。
+6. 用户数据（config.json / ui_config.json / .antnest / trace）落在 `%LOCALAPPDATA%\AntNest`，
+   与源码同目录但升级时不覆盖（Inno `onlyifdoesntexist`）。入口自身日志在
+   `%LOCALAPPDATA%\AntNest\logs\startup.log`。
 
 ## 构建安装器
 

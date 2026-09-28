@@ -3,7 +3,43 @@
 ## v1.4 (进行中) — Reliability
 
 设计文档：[`docs/v1.4-DESIGN.md`](docs/v1.4-DESIGN.md)（v2 评审后修订）
-每个步骤完成后在此追加**本步解决了什么 / 还有什么痛点**。
+每个步骤完成后在此追加 *本步解决了什么 / 还有什么痛点*。
+
+---
+
+### v1.4.1 — 可观测性 + exe 启动入口重建
+
+设计文档：[`docs/v1.4.1-DESIGN.md`](docs/v1.4.1-DESIGN.md)、
+[`docs/v1.4.1-BOOT-DESIGN.md`](docs/v1.4.1-BOOT-DESIGN.md)（均为评审后修订版）
+
+#### 步 0 — 面板头按钮整宽拉伸
+
+- **解决**：截图里的「轨迹」按钮渲染成整宽方块，像一个文本框；子任务/工蚁的「展开」按钮同样受影响。根因不是缺 CSS，而是 Python 把按钮写成 `h2` 的兄弟节点，被列向 flex 的 `align-items:stretch` 拉满——而 `.card h2` 本身就是 `display:flex`，本意就是标题与按钮同行。修正结构而非补 CSS。
+- **顺带**：`v1.4` 引入的 `.btn-expand` / `.card-h2` 在 `app.css` 里**零规则**（死类），所以这个错误一直没被发现。新增通用死类扫描：覆盖两个组件类产地（`ui_render.py` 26 个 + `prototype_antnest.py` 3 个）逐个断言有 CSS 规则，钩子类需显式登记，扫描面缩小时测试自己会失败。
+- **遗留**：无。
+
+#### 步 1 — 捕获 `finish_reason`（失败归因的数据源）
+
+- **解决**：`llm_chat_stream` 全程不捕获 `finish_reason`，于是「回复被 token 上限截断」「被内容策略拦截」「服务端资源不足」三类全部塌缩成同一句「本轮没有文本回复」。现在三元组返回，`agent_single_loop` 新增 `LoopResult` 显式回传结局（7 种：`replied`/`empty`/`max_rounds`/`cancelled`/`denied`/`approval`/`error`）+ 逐轮 `finish_reasons` + 重试告警原文。
+- **关键坑**：`finish_reason` 挂在 `choices[0]` 而非 `delta`，而流式协议的终止块是 `{"delta": {}, "finish_reason": "stop"}`——`delta` 为空会被 `if not delta: continue` 短路掉。**读取点写错则测试全绿而覆盖为零**。已加 SSE 字节流 fixture（含终止块）与源码顺序断言，并用变异测试确认守得住（破坏后 7 个用例失败）。
+- **顺带**：「回复为空」的重试告警原先只喂回给模型、用户一个字都看不到，现收进 `LoopResult.retry_notes`。
+- **遗留**：`diagnose_turn()` 归因与 `AntNestError.user_msg` 上屏属下一步。
+
+#### 步 2 — exe 启动入口重建
+
+- **解决**：`launcher.ps1`（`AntNest.exe` 的唯一源码，开始菜单与桌面快捷方式都指向它）有四类真问题：
+  1. `$ErrorActionPreference="Stop"` 却**没有顶层 try/catch**，而 ps2exe `-noConsole` 下没有控制台可打印——`Add-Type` / `Start-Process`（AV 隔离 `uv.exe` 时）等抛出的终止性错误全部静默。
+  2. `WaitForExit()` 之后**不检查退出码**：`uv run` 同步失败、`pywebview` import 失败、venv 损坏——应用起不来时屏幕上什么都没有。
+  3. WebView2 探测每次双击都 `Get-ChildItem -Recurse` 重扫一遍，无 marker 缓存。改为**注册表优先**（Edge Update 维护，~1ms），递归扫描退为兜底。
+  4. `$app` 靠 `MainModule.FileName` 推导，未编译运行时等于 `powershell.exe` → `$app` 变成 `System32`。改用 `$PSScriptRoot` 优先。
+- **失败汇报不新增捕获机制**：子进程非零退出时读应用**本来就在写**的 `antnest.log` / `ui_trace.log` 尾部，弹窗给出「退出码 + 真实错误原文 + 日志路径」。不重定向 stdout 是刻意的（见下）。
+- **删除死代码**：`launch.ps1`（`launcher.ps1` 的近似复制品，无任何消费者）与 `launcher.ps1`，由 `installer/antnest_boot.ps1` 取代。同步更新 `build_launcher.ps1`、`AntNest.iss`、`tools/release_check.ps1`、`installer/README.md`、`.gitignore`、RELEASE_NOTES。
+- **顺带把陈旧 exe 变成可检测**：`tools/sync_release.ps1` 注入预构建 exe 且不重跑构建脚本，源码改了 exe 也不会更新。加 `$BOOT_SCHEMA` 指纹并由 `release_check.ps1` 比对——本次即因此发现入库 exe 版本资源已过期并重建。
+- **本步推翻了自己的一版设计**（详见 BOOT-DESIGN §0）：v1 声称存在一条「import 期 `sys.exit(1)` → 静默死亡」的链路，评审逐环核对后发现第 1-2 环是错的——`antnest_bridge` 模块级并不 import `antnest_config`，它只经 `:775` 的**惰性** `importlib.import_module("AntNest")` 到达，而那里有 `except SystemExit` 且 stdout 已被换成 `StringIO`，错误原文会被渲染进聊天面板（`antnest_bridge.py:1192`）。我用一个关于 CPython 的正确事实（`SystemExit` 不经 `excepthook`）推出了一条假的事实。v1 基于此的 P6（预检 API Key，未配则阻止启动）会造成**净倒退**：拦住 → 应用不启动 → 设置页打不开，而它是唯一的自助修复路径。已删除。
+- **守住的硬约束**：
+  - **零黑框**：`-RedirectStandard*` 会强制 `UseShellExecute=false`，使 `WindowStyle` 失效，父进程无控制台时子进程会新分配一个**可见**控制台。已加测试禁止该用法。
+  - **无误报超时**：健康应用一直运行到用户关窗，任何 `WaitForExit(毫秒)` 都会在每次成功启动时误报。已加测试禁止（WebView2 安装器的有界等待单独豁免并反向守卫）。
+- **遗留**：`antnest_config.py:116-120` 的 import 期 `sys.exit(1)`（R8）**本轮不动**。它的表现已可观测（`antnest_bridge.py:1192` 会把原文上屏），本轮只是不再让入口层掩盖它。R11：`ps2exe` 产物与真实启动失败场景需在有 GUI/有网环境手工各验一次（本轮已用 PowerShell 5.1 实机跑通 20 项行为断言，但无头环境下 `MessageBox` 被打桩）。
 
 ---
 

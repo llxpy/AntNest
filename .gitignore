@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# 原生启动器 AntNest.exe（ps2exe 编译 launcher.ps1）——有意入库，勿忽略
+# 原生启动器 AntNest.exe（ps2exe 编译 antnest_boot.ps1）——有意入库，勿忽略
 
 # Inno Setup 安装包产物（release asset，publish via GitHub Release，绝不入库）
 installer/out/

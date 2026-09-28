@@ -12,7 +12,7 @@ v1 主推 **B / C**（已装 uv 的开发者，零摩擦）；**A 仅作附加�
 - 解压后双击根目录的 **`AntNest.exe`**（原生启动器，无控制台窗口）。
 - 首次运行自动装 uv + WebView2 运行时（若未装），再自动建环境装 pywebview（需联网一次，之后离线可开）。
 - 运行时数据落到可写位置 `%LOCALAPPDATA%\AntNest`，不污染解压目录。
-- 备用：`launch.bat`（控制台回退）、`launcher.ps1`（启动器源码）。`AntNest.exe` 由 `installer\build_launcher.ps1`（ps2exe）编译，需重新生成时运行它即可。
+- 备用：`launch.bat`（控制台回退）。`AntNest.exe` 由 `installer\build_launcher.ps1`（ps2exe）编译，源码为 `installer\antnest_boot.ps1`（v1.4.1 起由该文件取代原 `launcher.ps1`），需重新生成时运行构建脚本即可。
 
 ### C · uvx 一行命令（已装 uv 的开发者）
 ```bat

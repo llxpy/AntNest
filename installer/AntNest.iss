@@ -85,10 +85,13 @@ Source: "{#SourceDir}\antnest.ico";          DestDir: "{app}"; Flags: ignorevers
 ; ---- UI assets (read at runtime by ui_render / ui_assets_loader) ----
 Source: "{#SourceDir}\ui_assets\*"; DestDir: "{app}\ui_assets"; Flags: ignoreversion recursesubdirs
 ; ---- installer helper scripts (shared uv_helper is required by the others) ----
+; launch.ps1 and launcher.ps1 were removed in v1.4.1: both duplicated the boot
+; logic, launcher.ps1 was the ps2exe source (now antnest_boot.ps1), and
+; launch.ps1 had no consumer at all. install_deps.ps1 below is NOT one of
+; them - it is invoked by [Run] to install uv and pre-build the venv.
 Source: ".\uv_helper.ps1";       DestDir: "{app}"; Flags: ignoreversion
-Source: ".\launch.ps1";           DestDir: "{app}"; Flags: ignoreversion
 Source: ".\ensure_prereqs.ps1";   DestDir: "{app}"; Flags: ignoreversion
-Source: ".\launcher.ps1";         DestDir: "{app}"; Flags: ignoreversion
+Source: ".\antnest_boot.ps1";     DestDir: "{app}"; Flags: ignoreversion
 Source: ".\install_deps.ps1";     DestDir: "{app}"; Flags: ignoreversion
 ; ---- compiled launcher (built by installer\build_launcher.ps1 before ISCC) ----
 Source: "{#SourceDir}\AntNest.exe"; DestDir: "{app}"; Flags: ignoreversion

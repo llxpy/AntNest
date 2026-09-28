@@ -22,9 +22,15 @@ if (-not (Get-Module -ListAvailable ps2exe)) {
 
 $root   = Split-Path -Parent $MyInvocation.MyCommand.Path   # installer/
 $repo   = Split-Path -Parent $root                          # repo root
-$input  = Join-Path $root "launcher.ps1"
+$input  = Join-Path $root "antnest_boot.ps1"
 $output = Join-Path $repo  "AntNest.exe"
 $icon   = Join-Path $repo  "antnest.ico"
+
+# Refuse to build from a missing/empty source: shipping the previous exe while
+# tests all pass is exactly the stale-exe hazard described in the design doc.
+if (-not (Test-Path $input)) {
+    throw "[build_launcher] Source not found: $input (refusing to build a stale exe)"
+}
 
 # --- Read version from pyproject.toml (single source of truth) ------------
 $version = "0.0.0"
