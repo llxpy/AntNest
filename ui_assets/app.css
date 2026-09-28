@@ -1912,7 +1912,14 @@ body{
 .tl-permission .tl-glyph{color:#e0a44c}
 .tl-checkpoint .tl-glyph{color:var(--accent,#4cc9f0)}
 .tl-task .tl-event{color:#8fd6c0}
-.plan-card .card-h2,.plan-card h2{margin-bottom:6px}
+.plan-card h2{margin-bottom:6px}
+/* 面板头按钮：.card h2 已是 flex 行，按钮靠 margin-left:auto 推到右端。
+   这条规则以前不存在——btn-expand 是死类，按钮被列向 flex 的
+   align-items:stretch 拉满整宽，渲染成一个像输入框的方块。 */
+.card h2 > .btn-expand{
+  margin-left:auto; font-size:11.5px; padding:4px 10px;
+  text-transform:none; letter-spacing:0; flex-shrink:0;
+}
 .plan-card #v14-controls{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
 .plan-card #v14-controls .btn{font-size:11.5px; padding:5px 10px}
 #timeline-modal-list{max-height:58vh; overflow-y:auto; padding:4px}

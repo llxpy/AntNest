@@ -13576,7 +13576,7 @@ app.body(
 
 
 
-                    ui.h2()["执行计划"],
+                    ui.h2()["执行计划", ui.raw('<button class="btn ghost btn-expand" onclick="openTimelineModal()" title="展开事件时间线">轨迹</button>')],
 
 
 
@@ -13592,15 +13592,6 @@ app.body(
 
 
 
-                    ui.raw('<button class="btn ghost btn-expand"'
-
-
-
-
-
-
-
-                            ' onclick="openTimelineModal()" title="展开事件时间线">轨迹</button>'),
 
 
 
@@ -13686,7 +13677,7 @@ app.body(
 
 
 
-                    ui.h2()["子任务"],
+                    ui.h2()["子任务", ui.raw('<button class="btn ghost btn-expand" onclick="openSubtasksModal()" title="展开查看全部子任务">展开</button>')],
 
 
 
@@ -13703,7 +13694,6 @@ app.body(
 
 
 
-
                 ],
 
 
@@ -13716,7 +13706,7 @@ app.body(
 
 
 
-                    ui.h2()["工蚁"],
+                    ui.h2()["工蚁", ui.raw('<button class="btn ghost btn-expand" onclick="openWorkersModal()" title="展开查看全部工蚁状态">展开</button>')],
 
 
 
@@ -13729,7 +13719,6 @@ app.body(
 
 
                     _workers(),
-
 
 
 

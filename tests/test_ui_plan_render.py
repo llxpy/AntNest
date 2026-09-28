@@ -7,6 +7,7 @@
 result_summary 里可能带尖括号、脚本标签，不能透传。
 """
 import html
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -260,6 +261,53 @@ class CssPresenceTest(unittest.TestCase):
 
     def test_reduced_motion_respected(self):
         self.assertIn("prefers-reduced-motion", self.css)
+
+    # 组件前缀：这些前缀下的类名约定是「自定义组件」，必须真有 CSS 规则。
+    # 工具类（flex/row/muted/primary…）不在此列，否则断言会淹没在噪音里。
+    _COMPONENT_PREFIXES = ("btn-", "tl-", "perm-", "plan-", "health-")
+
+    # 豁免：只被 JS 选中、靠继承父元素取样式、**故意**不给规则的类。
+    # 加进这里等于声明「我确认过它是钩子不是组件」，是个需要走心的决定。
+    _JS_HOOK_CLASSES = {
+        "btn-lbl": "querySelector('.btn-lbl') 换按钮文案，继承 .btn 样式",
+    }
+
+    # 组件类的两个产地：ui_render.py 生成面板 HTML，prototype 负责页面骨架。
+    # 只扫后者会漏掉 26 个里的 25 个。
+    _SOURCES = ("ui_render.py", "prototype_antnest.py")
+
+    def test_no_dead_component_classes(self):
+        """引用了但 app.css 里没有规则的组件类 = 静默裸奔。
+
+        v1.4.1 的根因：`.btn-expand` 与 `.card-h2` 被引用了几十处却零规则，
+        于是「轨迹」按钮被列向 flex 的 align-items:stretch 拉满整宽，
+        渲染成一个像输入框的方块——而没有任何测试发现它。
+        逐个类断言存在，比补单个类更能防住下一次。
+        """
+        used = set()
+        for name in self._SOURCES:
+            src = (ROOT / name).read_text(encoding="utf-8")
+            for pat in (r"class=\"([^\"]+)\"", r"cls=\"([^\"]+)\""):
+                for m in re.finditer(pat, src):
+                    for tok in m.group(1).split():
+                        # f-string 模板（tl-{category}）是运行期拼的，
+                        # 具体规则形如 .tl-permission，无静态规则可断言
+                        if "{" in tok:
+                            continue
+                        if tok.startswith(self._COMPONENT_PREFIXES):
+                            used.add(tok)
+
+        self.assertTrue(used, "未扫描到任何组件类，扫描规则本身可能已失效")
+        # 两处产地都要扫到，否则扫描范围悄悄缩了也没人知道
+        self.assertGreaterEqual(len(used), 20, f"只扫到 {len(used)} 个组件类，扫描范围可能已失效")
+
+        # 豁免清单不得腐烂：条目若已不再被引用，说明钩子改名了，该清理
+        stale = [c for c in self._JS_HOOK_CLASSES if c not in used]
+        self.assertEqual([], stale, f"豁免清单里这些类已无人使用，应移除：{stale}")
+
+        dead = sorted(c for c in used
+                      if ("." + c) not in self.css and c not in self._JS_HOOK_CLASSES)
+        self.assertEqual([], dead, f"这些组件类在 app.css 中无规则，会裸奔：{dead}")
 
 
 class SelfSourceGateTest(unittest.TestCase):
