@@ -279,3 +279,147 @@ def render_log(logs: list) -> str:
             f'</div>'
         )
     return "\n".join(lines)
+
+# ================================================================
+# 技能表（v1.4.1）
+# ================================================================
+# 蚁后「会学习」这件事此前完全不可见：自撰工具写进了 .antnest/tools/，
+# 界面上毫无变化。本表把「蚁后现在能做什么」显式化，并让自撰工具的
+# 数量成为一个**常驻**的可见信号（学习成果的量化）。
+#
+# 两点诚实性约束（AGENTS.md §3「文档与 UI 措辞不得夸大」）：
+#   1. 等级色标**只画 payload 里真实存在的等级**。TOOL_SPECS 实际只用到
+#      L0-L3；L4(SYSTEM)/L5(SELF_MOD) 在 PermLevel 里存在但没有任何工具行是
+#      这个等级 —— L5 是权限闸门的参数敏感判定结果，不是工具的静态属性。
+#      画一格 L5 进去是凭空捏造。
+#   2. 标题写「蚁后可见」而不是「全部」。exposed_specs() 是 12，
+#      TOOL_SPECS 是 17，工蚁专用的两条蚁后常态拿不到。
+
+# 等级配色。键是 PermLevel 的整数值；缺失的等级不画（见上方约束 1）。
+_SKILL_LEVELS = {
+    0: ("L0", "只读审阅", "skill-lv lv0"),
+    1: ("L1", "写入文件", "skill-lv lv1"),
+    2: ("L2", "执行命令", "skill-lv lv2"),
+    3: ("L3", "访问网络", "skill-lv lv3"),
+}
+
+# 名称长度上限。display_name 来自模型输出，等同不可信输入：
+# 既要截断防布局被撑爆，也要在渲染层转义。
+_SKILL_NAME_MAX = 18
+_SKILL_DESC_MAX = 80
+
+
+def _skill_name(s: object) -> str:
+    """截断后转义。顺序不能反：先按字符截，再转义。"""
+    t = str(s or "")
+    if len(t) > _SKILL_NAME_MAX:
+        t = t[:_SKILL_NAME_MAX - 1] + "…"
+    return esc(t)
+
+
+def _skill_desc(s: object) -> str:
+    t = " ".join(str(s or "").split())
+    if len(t) > _SKILL_DESC_MAX:
+        t = t[:_SKILL_DESC_MAX - 1] + "…"
+    return esc(t)
+
+
+def render_skill_table(payload: dict) -> str:
+    """渲染技能表。**纯函数** —— 不碰文件系统、不碰全局状态。
+
+    payload 来自 antnest_toolforge.build_skill_payload()。
+    """
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        return '<div class="muted skill-empty">技能表暂不可用（核心尚未加载）</div>'
+
+    builtin = payload.get("builtin") or []
+    worker_only = payload.get("worker_only") or []
+    learned = payload.get("learned") or []
+    counts = payload.get("counts") or {}
+
+    out = []
+
+    # --- 图例：只列实际存在的等级 ---
+    used = sorted({int(r.get("level", 0)) for r in builtin if isinstance(r, dict)})
+    used = [lv for lv in used if lv in _SKILL_LEVELS]
+    if used:
+        leg = []
+        for lv in used:
+            tag, label, cls = _SKILL_LEVELS[lv]
+            leg.append(
+                f'<span class="skill-legend-item"><span class="{cls}">{tag}</span>'
+                f'<span class="muted">{esc(label)}</span></span>'
+            )
+        out.append(f'<div class="skill-legend">{"".join(leg)}</div>')
+
+    # --- 内置能力 ---
+    nb = counts.get("builtin", len(builtin))
+    if builtin:
+        rows = []
+        for r in builtin:
+            lv = int(r.get("level", 0))
+            tag, _label, cls = _SKILL_LEVELS.get(lv, ("L?", "", "skill-lv lvx"))
+            rows.append(
+                f'<div class="skill-row">'
+                f'<span class="{cls}">{tag}</span>'
+                f'<span class="skill-name">{_skill_name(r.get("display"))}</span>'
+                f'<span class="muted skill-desc">{_skill_desc(r.get("summary"))}</span>'
+                f"</div>"
+            )
+        out.append(
+            f'<div class="skill-group"><div class="skill-group-h">'
+            f'内置能力 <span class="skill-count">{nb}</span></div>'
+            f'{"".join(rows)}</div>'
+        )
+
+    # --- 工蚁专用：蚁后常态拿不到，单独归组而非混进上面 ---
+    nw = counts.get("worker_only", len(worker_only))
+    if worker_only:
+        rows = []
+        for r in worker_only:
+            lv = int(r.get("level", 0))
+            tag, _label, cls = _SKILL_LEVELS.get(lv, ("L?", "", "skill-lv lvx"))
+            rows.append(
+                f'<div class="skill-row is-worker">'
+                f'<span class="{cls}">{tag}</span>'
+                f'<span class="skill-name">{_skill_name(r.get("display"))}</span>'
+                f'<span class="muted skill-desc">{_skill_desc(r.get("summary"))}</span>'
+                f"</div>"
+            )
+        out.append(
+            f'<details class="skill-group skill-group-fold">'
+            f'<summary class="skill-group-h">工蚁专用 '
+            f'<span class="skill-count">{nw}</span></summary>'
+            f'{"".join(rows)}</details>'
+        )
+
+    # --- 自撰工具：蚁后自己写的，是「它在变强」的可见证据 ---
+    nl = counts.get("learned", len(learned))
+    if learned:
+        rows = []
+        for r in learned:
+            note = ""
+            if r.get("broken"):
+                note = '<span class="skill-broken">元数据损坏</span>'
+            rows.append(
+                f'<div class="skill-row is-learned">'
+                f'<span class="skill-mark">◆</span>'
+                f'<span class="skill-name">{_skill_name(r.get("display"))}</span>'
+                f'<span class="muted skill-desc">{_skill_desc(r.get("description"))}</span>'
+                f"{note}</div>"
+            )
+        out.append(
+            f'<div class="skill-group"><div class="skill-group-h">'
+            f'自撰工具 <span class="skill-count">{nl}</span></div>'
+            f'{"".join(rows)}</div>'
+        )
+    else:
+        # 零自撰工具是**常态**（刚装完就是这样），不是错误，所以给引导文案
+        out.append(
+            '<div class="skill-group"><div class="skill-group-h">自撰工具 '
+            '<span class="skill-count">0</span></div>'
+            '<div class="muted skill-empty">蚁后还没自撰过工具。'
+            "遇到重复的活儿它会把脚本登记进来，下次直接复用。</div></div>"
+        )
+
+    return f'<div class="skill-table">{"".join(out)}</div>'

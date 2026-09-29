@@ -2072,6 +2072,14 @@ function onSaveSettings(){
 
 
 
+function openSkillTableModal(){
+  var m=document.getElementById("skill-table-modal"); if(m)m.classList.add("show");
+  if(window.phwCall){ try{ phwCall("skill_table_open",{}); }catch(e){} }
+}
+function closeSkillTableModal(){
+  var m=document.getElementById("skill-table-modal"); if(m)m.classList.remove("show");
+}
+
 function openSubtasksModal(){
 
 

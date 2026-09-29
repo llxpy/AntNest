@@ -372,6 +372,7 @@ register_tool_schema = {
                 "code": {"type": "string", "description": "工具完整 Python 源码"},
                 "category": {"type": "string", "default": "general", "description": "工具分类（general/code/data/web/system）"},
                 "source_note": {"type": "string", "default": "", "description": "来源说明（由哪次任务演化而来）"},
+                "display_name": {"type": "string", "default": "", "description": "给人看的中文名（如「PDF 文本提取」），会显示在 UI 技能表上。留空则用工具名本身"},
             },
             "required": ["name", "code"],
         },

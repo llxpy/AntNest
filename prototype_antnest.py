@@ -3038,6 +3038,10 @@ def _flush():
 
             app.update("#subtasks-modal-list", _subtasks_html(limit=MAX_MODAL_ITEMS))
 
+        if "skills" in parts:
+            app.update("#skill-panel", _skill_panel())
+            app.update("#skill-table", _skill_panel())
+
 
 
 
@@ -6693,6 +6697,17 @@ def _plan_panel():
 
 
 
+
+
+def _skill_panel():
+    """蚁后能力面板：内置能力 + 蚁后自撰工具。
+
+    自撰工具的数量是**常驻**的「蚁后在变强」的可见信号 —— 技能表是低频查阅
+    入口，如果只在用户点开时才看得到，这件事就等于装饰。
+    """
+    payload = bridge.Bridge().skill_table_payload()
+    return ui.div(id="skill-panel")[ui.raw(ui_render.render_skill_table(payload))]
+
 def _perm_panel():
 
 
@@ -8823,6 +8838,20 @@ f'<div class="settings-panel" data-panel="advanced">{_settings_section("高级",
 
 
 
+
+@app.route("skill_table_open")
+def on_skill_table_open(data):
+    """展开技能表：现采现渲染，不缓存。
+
+    采集侧是 Bridge.skill_table_payload()，核心未加载时返回 not_ready 而
+    不是抛异常 —— 技能表是用户可能在第一次对话前就点开的入口。
+    """
+    try:
+        payload = bridge.Bridge().skill_table_payload()
+        app.update("#skill-table", ui_render.render_skill_table(payload))
+    except Exception as e:
+        trace("S9", "warn", f"技能表渲染失败：{e}")
+    return {"ok": True}
 
 @app.route("chat_input")
 
@@ -13661,6 +13690,13 @@ app.body(
 
 
                 ],
+                ui.div(cls="card panel skill-card")[
+
+                    ui.h2()["蚁后能力", ui.raw('<button class="btn ghost btn-expand" onclick="openSkillTableModal()" title="展开全部能力与自撰工具">展开</button>')],
+
+                    _skill_panel(),
+                ],
+
 
 
 
@@ -14081,6 +14117,16 @@ app.body(
 
 
     ),
+
+# 蚁后能力表展开模态（面板常驻计数，展开看全表）
+ui.raw(
+    '<div id="skill-table-modal" class="modal ops-modal" onclick="if(event.target===this) closeSkillTableModal()">'
+    '<button type="button" class="modal-close global" onclick="closeSkillTableModal()" title="关闭">×</button>'
+    '<div class="modal-card" onclick="event.stopPropagation()">'
+    '<h2>蚁后能力表</h2>'
+    '<p class="muted" style="font-size:13px;margin:-8px 0 12px">内置能力与蚁后自撰的工具</p>'
+    '<div id="skill-table"><div class="muted">加载中</div></div>'
+    '</div></div>'),
 
 
 

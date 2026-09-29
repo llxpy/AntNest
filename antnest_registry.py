@@ -52,6 +52,9 @@ class ToolSpec:
     panic_only: bool = False
     mutating: bool = False
     summary: str = ""
+    # 人读名（UI 技能表用）。挂在 ToolSpec 上而不是另建映射表，
+    # 是为了遵守 AGENTS.md §4「不得手写工具名枚举」。
+    display: str = ""
 
     @property
     def key(self) -> str:
@@ -84,27 +87,27 @@ _MCP_TOOLS = ("mcp_call", "mcp_list_tools")
 TOOL_SPECS: tuple[ToolSpec, ...] = (
     # ---- 蚁后可见（顺序与 v1.3.1 一致） ----
     ToolSpec("spawn_clone", PermLevel.EXECUTE, "spawn_clone_schema", "spawn_clone",
-             mutating=True, summary="生成工蚁在隔离目录执行命令"),
+             mutating=True, summary="生成工蚁在隔离目录执行命令", display="派出工蚁"),
     ToolSpec("get_task_status", PermLevel.READ, "get_task_status_schema", "get_task_status",
-             summary="查询工蚁任务状态"),
+             summary="查询工蚁任务状态", display="查询任务状态"),
     ToolSpec("view_file", PermLevel.READ, "view_file_schema", "view_file",
-             summary="派工蚁只读查看文件"),
+             summary="派工蚁只读查看文件", display="查看文件"),
     ToolSpec("list_dir", PermLevel.READ, "list_dir_schema", "list_dir",
-             summary="派工蚁只读列目录"),
+             summary="派工蚁只读列目录", display="列出目录"),
     ToolSpec("grep_files", PermLevel.READ, "grep_files_schema", "grep_files",
-             summary="派工蚁搜索文件内容"),
+             summary="派工蚁搜索文件内容", display="搜索文件内容"),
     ToolSpec("write_file", PermLevel.WRITE, "write_file_schema", "write_file",
-             mutating=True, summary="派工蚁写入/覆盖文件"),
+             mutating=True, summary="派工蚁写入/覆盖文件", display="写入文件"),
     ToolSpec("search_replace", PermLevel.WRITE, "search_replace_schema", "search_replace",
-             mutating=True, summary="派工蚁精确替换文件片段"),
+             mutating=True, summary="派工蚁精确替换文件片段", display="替换文件片段"),
     ToolSpec("web_fetch", PermLevel.NETWORK, "web_fetch_schema", "web_fetch",
-             summary="抓取网页转纯文本"),
+             summary="抓取网页转纯文本", display="抓取网页"),
     ToolSpec("register_tool", PermLevel.WRITE, "register_tool_schema", "register_tool",
-             mutating=True, summary="登记手搓工具进工具库"),
+             mutating=True, summary="登记手搓工具进工具库", display="登记新工具"),
     ToolSpec("list_tools", PermLevel.READ, "list_tools_schema", "list_tools",
-             summary="列出工具库"),
+             summary="列出工具库", display="查看工具库"),
     ToolSpec("get_tool_source", PermLevel.READ, "get_tool_source_schema", "get_tool_source",
-             summary="取回工具源码"),
+             summary="取回工具源码", display="取回工具源码"),
 
     # ---- 计划 ----
     # level=READ + mutating=False：update_plan 不碰任何文件、不执行任何命令，
@@ -112,28 +115,28 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     # 位置：v1.3.1 那 11 个之后、MCP 之前。MCP 工具在 v1.3.1 里是 extend 追加到
     # 列表末尾的，保持这个位置关系便于与旧行为 diff。
     ToolSpec("update_plan", PermLevel.READ, "update_plan_schema", "update_plan",
-             summary="登记本任务的执行计划（DAG），UI 可见"),
+             summary="登记本任务的执行计划（DAG），UI 可见", display="更新执行计划"),
 
     # ---- MCP（启用时追加在尾部） ----
     ToolSpec("mcp_call", PermLevel.NETWORK, "mcp_call_schema", "mcp_call",
-             summary="调用 MCP 服务器工具"),
+             summary="调用 MCP 服务器工具", display="调用 MCP 工具"),
     ToolSpec("mcp_list_tools", PermLevel.NETWORK, "mcp_list_tools_schema", "mcp_list_tools",
-             summary="列出 MCP 服务器及其工具"),
+             summary="列出 MCP 服务器及其工具", display="浏览 MCP 工具"),
 
     # ---- 仅工蚁模式 ----
     ToolSpec("run_cli", PermLevel.EXECUTE, "run_cli_schema", "run_cli",
              exposed=False, worker_only=True, mutating=True,
-             summary="直接执行 shell 命令（仅工蚁模式）"),
+             summary="直接执行 shell 命令（仅工蚁模式）", display="执行 Shell 命令"),
     ToolSpec("run_python", PermLevel.EXECUTE, "run_python_schema", "run_python",
              exposed=False, worker_only=True, mutating=True,
-             summary="直接解释执行 Python（仅工蚁模式）"),
+             summary="直接解释执行 Python（仅工蚁模式）", display="执行 Python"),
 
     # ---- 仅压缩态 ----
     # panic_only：常态下不下架。leave_memory_hints 的实现要求 messages 里存在
     # COMPACT_PROMPT 标记（antnest_memory.leave_memory_hints:59-66），常态暴露
     # 只会让模型反复调用后拿到错误、并可能干扰正常的压缩流程。
     ToolSpec("leave_memory_hints", PermLevel.READ, "memory_hints_schema", "leave_memory_hints",
-             panic_only=True, summary="压缩历史并留下记忆线索（仅压缩态可用）"),
+             panic_only=True, summary="压缩历史并留下记忆线索（仅压缩态可用）", display="留下记忆线索"),
 )
 
 _BY_NAME: dict[str, ToolSpec] = {s.name: s for s in TOOL_SPECS}

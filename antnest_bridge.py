@@ -1519,6 +1519,40 @@ class AntNestCore:
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def skill_table_payload(self) -> dict:
+        """技能表数据：蚁后可见的内置能力 + 蚁后自撰的工具。
+
+        刻意做成 Bridge 方法而非模块级自由函数：技能表是用户**可能在第一次
+        对话之前**就点开的入口，而 antnest_toolforge 的 tools_dir() 会经
+        _A() -> import AntNest，那条链的终点是 antnest_config 的
+        sys.exit(1)（无 API Key 时）。模块级函数没有 ensure_loaded 的
+        SystemExit 兜底，会直接把 GUI 打死。
+
+        采集侧因此走 iter_tool_meta(base_dir) —— 接收显式目录，不碰 _A()。
+        """
+        if not self.ready or not self.mod:
+            # 核心未加载时不能 import AntNest（可能 SystemExit）
+            return {"status": "not_ready",
+                    "builtin": [], "worker_only": [], "learned": [],
+                    "counts": {"builtin": 0, "worker_only": 0, "learned": 0}}
+        try:
+            import os as _os
+            import antnest_registry as reg
+            import antnest_toolforge as forge
+            base = _os.path.join(self.mod.PROJECT_ANT_DIR, "tools")
+            metas = forge.iter_tool_meta(base)
+            # 顺序即语义：TOOL_SPECS 的声明顺序，不要重排
+            payload = forge.build_skill_payload(list(reg.TOOL_SPECS), metas)
+            trace("S9", "info",
+                  f"技能表：内置 {payload['counts']['builtin']} / "
+                  f"自撰 {payload['counts']['learned']}")
+            return payload
+        except Exception as e:
+            trace("S9", "warn", f"技能表采集失败：{e}")
+            return {"status": "error", "error": str(e),
+                    "builtin": [], "worker_only": [], "learned": [],
+                    "counts": {"builtin": 0, "worker_only": 0, "learned": 0}}
+
     def effective_config(self):
         """当前真正生效的配置（环境变量可能盖过 config.json，这里是实话）。"""
         if self.mod:

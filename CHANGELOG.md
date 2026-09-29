@@ -25,6 +25,47 @@
 - **顺带**：「回复为空」的重试告警原先只喂回给模型、用户一个字都看不到，现收进 `LoopResult.retry_notes`。
 - **遗留**：`diagnose_turn()` 归因与 `AntNestError.user_msg` 上屏属下一步。
 
+#### 步 5 — 技能表（把「蚁后在变强」变得可见）
+
+**立意**：AntNest 最值钱的东西是「蚁后会学习」——自撰工具、情景记忆、自我反思、
+持久知识四件套俱全——而**这些此前在 UI 里一个都看不到**。蚁后刚学会一个新工具，
+界面上毫无变化。这不是功能缺失，是成果不可见。
+
+- **可读名**：`ToolSpec` 新增 `display` 字段，17 个工具全部配了中文名
+  （`spawn_clone` → 「派出工蚁」）。挂在 `TOOL_SPECS` 上而不是另建映射表 ——
+  遵守 AGENTS.md §4「不得手写工具名枚举」，且那张表必然会腐烂。
+- **自撰工具可读名**：`register_tool` 新增可选 `display_name`，且**同步进
+  `antnest_schemas.py`**。漏掉 schema 的话，蚁后根本看不到这个字段，功能
+  会静默失效（无报错，只是字段永远不传）。
+- **覆盖更新不再抹名**：`register_tool` 原先整体覆写 `tool.json`，而蚁后改进
+  自己的工具时不会重复传 `display_name` —— 恰是「它改进了自己的工具」这条
+  故事会把名字丢掉。已改为与旧 meta 合并，并有回归测试。
+- **界面**：右栏「蚁后能力」卡片 + 展开模态，沿用既有的「小面板 + `btn-expand`」
+  范式（`tests/test_topbar_model.py` 钉着）。**自撰工具的计数常驻**——
+  技能表是低频查阅入口，如果只在点开时看得到，「它在变强」就等于装饰。
+- **采集不碰全局**：新增 `iter_tool_meta(base_dir)` 接收显式目录，不经 `_A()`。
+  这条是必须的：`antnest_toolforge.tools_dir()` → `_A()` → `import AntNest`
+  → `antnest_config` 的 `sys.exit(1)`，而技能表恰恰是用户**可能在第一次对话
+  之前**就点开的入口。`Bridge.skill_table_payload()` 因此是 Bridge 方法并有
+  `self.ready` 早退。采集侧还不读 `tool.py` 源码（那是 `list_tools` 为了给
+  模型报行数的开销，画名字表不该付）。
+- **诚实性**（AGENTS.md §3）：等级色标**只画 `TOOL_SPECS` 实际用到的等级**。
+  `PermLevel` 有 L0–L5，但工具里只用到 L0–L3；L4/L5 没有任何工具行是那个等级，
+  L5 是权限闸门的参数敏感判定结果。画一格 L5 进去是凭空捏造。
+  计数也标明口径（「蚁后可见」而非「全部」）。
+- **砍掉的**（v1 设计稿里写了、被评审否掉）：Skills 分组（`_skills_modal()`
+  已存在且已接线，新表再画是同一份数据的第二次渲染）、多级名称回退（当前
+  `.antnest/tools/` 是空的，为不存在的样本设计）、版本号与相对时间、悬停展开。
+
+新增 `tests/test_skill_table.py` 25 项，含真文件系统 fail-soft 与恶意
+`display_name`（模型输出等同不可信输入）的转义/截断断言。**变异测试确认
+5 道护栏全部有效**：清空 display、造重复 display、schema 字段写错、
+去掉 merge 逻辑、删 L3 配色 —— 逐一破坏后都有对应用例失败。
+
+- **遗留 R12**：面板的开关交互与布局不在 Python 测试覆盖内（CI 含
+  `ubuntu-latest`，且 `load_js()`/`load_css()` 内联进 HTML 无热重载通路），
+  需在有 GUI 的环境手工点开一次确认。
+
 #### 步 4 — 测试套件首次全绿 + README 重写
 
 **测试（先于 README 修的）**：README 要写测试数，而 `test_capability` 两条一直是红的，于���先查清了。根因是**系统性测试卫生缺陷**：14 个测试文件用 `os.environ.setdefault("ANT_SKIP_MODEL_CHECK", "1")` 且从不清理，`test_api_compat.py:76` 还直接设 `an.SKIP_MODEL_CHECK = True`。按字母序 `test_capability` 排在它们之后，继承了被污染的环境，`_ensure_model_cap()` 直接 return，画像永远是未检测兜底。**症状是单跑该文件全绿、全量跑两条红。** 已让 `setUpClass` 显式 `pop` 环境变量、reload `antnest_config`、清 `model_capabilities._CACHE`。
