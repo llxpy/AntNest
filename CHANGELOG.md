@@ -66,6 +66,15 @@
   `ubuntu-latest`，且 `load_js()`/`load_css()` 内联进 HTML 无热重载通路），
   需在有 GUI 的环境手工点开一次确认。
 
+**上线后热修**：首次启动即崩——`_skill_panel()` 写了 `bridge.Bridge()`，而
+`antnest_bridge` 里根本没有 `Bridge` 类（实际是 `AntNestCore`）。全部测试照常
+通过的原因：没有任何测试 import prototype_antnest（会启动 GUI），`ast.parse`
+只能抓语法抓不了属性名。**这类「运行期才炸」的引用用静态扫描守住了**：
+`tests/test_ui_wiring.py::BridgeAttributeGuardTest` 对 prototype 的 AST 里每个
+`bridge.X` 引用断言真实存在于模块命名空间，变异验证确认能抓。同轮还发现
+`_skill_panel`/路由各自新建 `AntNestCore()` 实例——`__init__` 会把 `ready` 置
+`False`，技能表将永远显示未就绪；已改为复用全局 `core` 实例。
+
 #### 步 4 — 测试套件首次全绿 + README 重写
 
 **测试（先于 README 修的）**：README 要写测试数，而 `test_capability` 两条一直是红的，于���先查清了。根因是**系统性测试卫生缺陷**：14 个测试文件用 `os.environ.setdefault("ANT_SKIP_MODEL_CHECK", "1")` 且从不清理，`test_api_compat.py:76` 还直接设 `an.SKIP_MODEL_CHECK = True`。按字母序 `test_capability` 排在它们之后，继承了被污染的环境，`_ensure_model_cap()` 直接 return，画像永远是未检测兜底。**症状是单跑该文件全绿、全量跑两条红。** 已让 `setUpClass` 显式 `pop` 环境变量、reload `antnest_config`、清 `model_capabilities._CACHE`。

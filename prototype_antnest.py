@@ -6705,7 +6705,7 @@ def _skill_panel():
     自撰工具的数量是**常驻**的「蚁后在变强」的可见信号 —— 技能表是低频查阅
     入口，如果只在用户点开时才看得到，这件事就等于装饰。
     """
-    payload = bridge.Bridge().skill_table_payload()
+    payload = core.skill_table_payload()
     return ui.div(id="skill-panel")[ui.raw(ui_render.render_skill_table(payload))]
 
 def _perm_panel():
@@ -8847,7 +8847,7 @@ def on_skill_table_open(data):
     不是抛异常 —— 技能表是用户可能在第一次对话前就点开的入口。
     """
     try:
-        payload = bridge.Bridge().skill_table_payload()
+        payload = core.skill_table_payload()
         app.update("#skill-table", ui_render.render_skill_table(payload))
     except Exception as e:
         trace("S9", "warn", f"技能表渲染失败：{e}")

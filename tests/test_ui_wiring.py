@@ -312,6 +312,33 @@ class UiWiringSourceTest(unittest.TestCase):
         self.assertIn("_ui_state_lock = threading.RLock()", self.src)
 
 
+class BridgeAttributeGuardTest(unittest.TestCase):
+    """prototype_antnest.py 引用的 bridge.<attr> 必须真实存在。
+
+    背景：技能表首次上线时写了 bridge.Bridge() —— antnest_bridge 里根本没有
+    这个类。全量测试照常通过（没有任何测试 import prototype_antnest，ast.parse
+    只能抓语法抓不了属性名），直到用户启动应用才炸出 AttributeError。
+    这类「运行期才炸的属性名」用静态扫描守：AST 里每个 bridge.X 引用，
+    断言 X 真实存在于 antnest_bridge 的命名空间。
+    """
+
+    def test_all_bridge_refs_exist(self):
+        src = _source("prototype_antnest.py")
+        tree = ast.parse(src)
+        refs = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "bridge"):
+                refs.add(node.attr)
+        self.assertTrue(refs, "prototype 里没有任何 bridge.X 引用，扫描器失效？")
+        import antnest_bridge as B
+        missing = sorted(r for r in refs if not hasattr(B, r))
+        self.assertEqual([], missing,
+                         f"prototype_antnest.py 引用了不存在的 bridge.{missing}"
+                         "——运行时才会炸，先在这里卡住")
+
+
 class SelfSourceCoverageTest(unittest.TestCase):
     """本轮改动的文件都必须在自身源码门禁名单里。"""
 
